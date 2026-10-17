@@ -4,6 +4,7 @@
     isDigitizerModalOpen,
     digitizerSourceLayerId,
     closeDigitizerModal,
+    grid,
     layers,
     palette,
     selection,
@@ -155,52 +156,136 @@
     }
   }
 
-  function drawSourceRotated(ctx: CanvasRenderingContext2D, w: number, h: number) {
-    if (!sourceImg) return;
-    const rot = refImage?.rotation || 0;
-    if (rot % 360 !== 0) {
-      ctx.save();
-      ctx.translate(w / 2, h / 2);
-      ctx.rotate((rot * Math.PI) / 180);
-      ctx.drawImage(sourceImg, -w / 2, -h / 2, w, h);
-      ctx.restore();
-    } else {
-      ctx.drawImage(sourceImg, 0, 0, w, h);
-    }
-  }
+  let previewFrameMode: 'canvas' | 'image' = 'canvas';
+  let offscreenSourceCanvas: HTMLCanvasElement | null = null;
+  let hoveredPickColor: string | null = null;
+  let pickMousePos = { x: 0, y: 0 };
 
   function renderPreview() {
     if (!previewCanvas || !sourceImg || !refImage) return;
     const ctx = previewCanvas.getContext('2d');
     if (!ctx) return;
 
-    const targetW = Math.max(1, Math.round(refImage.width));
-    const targetH = Math.max(1, Math.round(refImage.height));
+    let minX = 0;
+    let minY = 0;
+    let maxX = $grid.width;
+    let maxY = $grid.height;
 
-    const cellSize = Math.max(4, Math.floor(18 * previewZoom));
-    const canvasW = targetW * cellSize;
-    const canvasH = targetH * cellSize;
+    if (previewFrameMode === 'canvas') {
+      minX = Math.min(0, Math.floor(refImage.x));
+      minY = Math.min(0, Math.floor(refImage.y));
+      maxX = Math.max($grid.width, Math.ceil(refImage.x + refImage.width));
+      maxY = Math.max($grid.height, Math.ceil(refImage.y + refImage.height));
+    } else {
+      minX = Math.floor(refImage.x);
+      minY = Math.floor(refImage.y);
+      maxX = Math.ceil(refImage.x + refImage.width);
+      maxY = Math.ceil(refImage.y + refImage.height);
+    }
+
+    const totalCols = Math.max(1, maxX - minX);
+    const totalRows = Math.max(1, maxY - minY);
+
+    const baseCell = Math.max(4, Math.min(22, Math.floor(620 / Math.max(totalCols, totalRows))));
+    const cellSize = Math.max(3, Math.floor(baseCell * previewZoom));
+
+    const canvasW = totalCols * cellSize;
+    const canvasH = totalRows * cellSize;
 
     previewCanvas.width = canvasW;
     previewCanvas.height = canvasH;
 
+    if (!offscreenSourceCanvas) {
+      offscreenSourceCanvas = document.createElement('canvas');
+    }
+    offscreenSourceCanvas.width = canvasW;
+    offscreenSourceCanvas.height = canvasH;
+    const offCtx = offscreenSourceCanvas.getContext('2d');
+    if (offCtx) {
+      offCtx.clearRect(0, 0, canvasW, canvasH);
+    }
+
     ctx.clearRect(0, 0, canvasW, canvasH);
 
-    // Checkerboard backdrop for transparency
+    // 1. Dark background for regions outside the stitch canvas
     const checkSize = 12;
     for (let cy = 0; cy < canvasH; cy += checkSize) {
       for (let cx = 0; cx < canvasW; cx += checkSize) {
-        ctx.fillStyle = ((cx / checkSize + cy / checkSize) % 2 === 0) ? '#1E1E24' : '#282832';
+        ctx.fillStyle = ((cx / checkSize + cy / checkSize) % 2 === 0) ? '#16161E' : '#1C1C26';
         ctx.fillRect(cx, cy, checkSize, checkSize);
       }
     }
 
+    // 2. Stitch Canvas Area Backdrop & Grid
+    const canvasStartX = (0 - minX) * cellSize;
+    const canvasStartY = (0 - minY) * cellSize;
+    const canvasPixelW = $grid.width * cellSize;
+    const canvasPixelH = $grid.height * cellSize;
+
+    // Aida cloth color for stitch canvas
+    ctx.fillStyle = '#FAF7EE';
+    ctx.fillRect(canvasStartX, canvasStartY, canvasPixelW, canvasPixelH);
+
+    // Subtle 10x10 grid on canvas
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
+    ctx.lineWidth = 1;
+    for (let gx = 0; gx <= $grid.width; gx += 10) {
+      const px = canvasStartX + gx * cellSize;
+      ctx.beginPath();
+      ctx.moveTo(px, canvasStartY);
+      ctx.lineTo(px, canvasStartY + canvasPixelH);
+      ctx.stroke();
+    }
+    for (let gy = 0; gy <= $grid.height; gy += 10) {
+      const py = canvasStartY + gy * cellSize;
+      ctx.beginPath();
+      ctx.moveTo(canvasStartX, py);
+      ctx.lineTo(canvasStartX + canvasPixelW, py);
+      ctx.stroke();
+    }
+
+    // Canvas boundary outline (Indigo)
+    ctx.strokeStyle = '#6366F1';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(canvasStartX, canvasStartY, canvasPixelW, canvasPixelH);
+
+    // Canvas label badge
+    if (previewFrameMode === 'canvas' && (minX < 0 || minY < 0 || maxX > $grid.width || maxY > $grid.height)) {
+      ctx.fillStyle = 'rgba(99, 102, 241, 0.9)';
+      ctx.font = 'bold 10px monospace';
+      ctx.fillRect(canvasStartX, canvasStartY, 140, 16);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillText(`CANVAS (${$grid.width}×${$grid.height} st)`, canvasStartX + 6, canvasStartY + 12);
+    }
+
+    // 3. Render Source Image into offscreen buffer & on preview
+    const imgX = (refImage.x - minX) * cellSize;
+    const imgY = (refImage.y - minY) * cellSize;
+    const imgW = refImage.width * cellSize;
+    const imgH = refImage.height * cellSize;
+    const rot = refImage.rotation || 0;
+
+    function drawTransformedImage(targetCtx: CanvasRenderingContext2D) {
+      if (!sourceImg) return;
+      targetCtx.save();
+      targetCtx.translate(imgX + imgW / 2, imgY + imgH / 2);
+      if (rot % 360 !== 0) {
+        targetCtx.rotate((rot * Math.PI) / 180);
+      }
+      targetCtx.drawImage(sourceImg, -imgW / 2, -imgH / 2, imgW, imgH);
+      targetCtx.restore();
+    }
+
+    // Draw into offscreen source buffer for pixel-perfect picking
+    if (offCtx) {
+      drawTransformedImage(offCtx);
+    }
+
+    // 4. Render based on active view mode
     if (previewView === 'source') {
-      // Draw source image scaled to preview matching layer rotation
-      drawSourceRotated(ctx, canvasW, canvasH);
+      drawTransformedImage(ctx);
     } else if (previewView === 'split') {
-      // Left half source, right half stitches
-      drawSourceRotated(ctx, canvasW, canvasH);
+      drawTransformedImage(ctx);
       const splitX = Math.floor(canvasW / 2);
 
       ctx.save();
@@ -208,7 +293,7 @@
       ctx.rect(splitX, 0, canvasW - splitX, canvasH);
       ctx.clip();
 
-      drawStitchesOnCtx(ctx, targetW, targetH, cellSize);
+      drawStitchesOnCtx(ctx, minX, minY, cellSize);
 
       ctx.restore();
 
@@ -220,87 +305,76 @@
       ctx.lineTo(splitX, canvasH);
       ctx.stroke();
     } else {
-      // Stitches view
-      drawStitchesOnCtx(ctx, targetW, targetH, cellSize);
+      // 'stitches' view
+      drawStitchesOnCtx(ctx, minX, minY, cellSize);
     }
+
+    // Ensure canvas boundary is clearly outlined on top
+    ctx.strokeStyle = '#6366F1';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(canvasStartX, canvasStartY, canvasPixelW, canvasPixelH);
   }
 
   function drawStitchesOnCtx(
     ctx: CanvasRenderingContext2D,
-    targetW: number,
-    targetH: number,
+    minX: number,
+    minY: number,
     cellSize: number
   ) {
-    if (!digitizeResult || !refImage) return;
+    if (!digitizeResult) return;
 
-    const originX = refImage.x;
-    const originY = refImage.y;
+    for (const stitch of digitizeResult.stitches) {
+      const px = (stitch.x - minX) * cellSize;
+      const py = (stitch.y - minY) * cellSize;
 
-    // Draw fabric backdrop in cell bounds
-    ctx.fillStyle = '#F9F6EE';
-    ctx.fillRect(0, 0, targetW * cellSize, targetH * cellSize);
+      ctx.fillStyle = stitch.hex;
+      ctx.fillRect(px, py, cellSize, cellSize);
 
-    // Stitches
-    for (const cell of digitizeResult.stitches) {
-      const lx = cell.x - originX;
-      const ly = cell.y - originY;
-      if (lx >= 0 && lx < targetW && ly >= 0 && ly < targetH) {
-        const px = lx * cellSize;
-        const py = ly * cellSize;
-
-        // Fabric cell
-        ctx.fillStyle = cell.hex;
-        ctx.fillRect(px, py, cellSize, cellSize);
-
-        // Subtle cross-stitch cross symbol if cell is large enough
-        if (cellSize >= 10) {
-          ctx.strokeStyle = 'rgba(0, 0, 0, 0.25)';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(px + 1, py + 1);
-          ctx.lineTo(px + cellSize - 1, py + cellSize - 1);
-          ctx.moveTo(px + cellSize - 1, py + 1);
-          ctx.lineTo(px + 1, py + cellSize - 1);
-          ctx.stroke();
-        }
-
-        // Cell border
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
-        ctx.lineWidth = 0.5;
-        ctx.strokeRect(px, py, cellSize, cellSize);
+      if (cellSize >= 9) {
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.22)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(px + 1, py + 1);
+        ctx.lineTo(px + cellSize - 1, py + cellSize - 1);
+        ctx.moveTo(px + cellSize - 1, py + 1);
+        ctx.lineTo(px + 1, py + cellSize - 1);
+        ctx.stroke();
       }
+
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(px, py, cellSize, cellSize);
     }
 
     // Visual feedback for selection boundary: dim out cells outside selection mask
     if (restrictToSelection && activeSelectionMask && activeSelectionMask.size > 0) {
       ctx.fillStyle = 'rgba(15, 15, 25, 0.45)';
-      for (let ly = 0; ly < targetH; ly++) {
-        for (let lx = 0; lx < targetW; lx++) {
-          const gx = originX + lx;
-          const gy = originY + ly;
-          if (!activeSelectionMask.has(`${gx},${gy}`)) {
-            ctx.fillRect(lx * cellSize, ly * cellSize, cellSize, cellSize);
-          }
+      for (const stitch of digitizeResult.stitches) {
+        const key = `${stitch.x},${stitch.y}`;
+        if (!activeSelectionMask.has(key)) {
+          const px = (stitch.x - minX) * cellSize;
+          const py = (stitch.y - minY) * cellSize;
+          ctx.fillRect(px, py, cellSize, cellSize);
         }
       }
     }
   }
 
   function handleCanvasClick(e: MouseEvent) {
-    if (!isPickingBgColor || !previewCanvas || !sourceImg) return;
+    if (!isPickingBgColor || !previewCanvas || !offscreenSourceCanvas) return;
     const rect = previewCanvas.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
+    const scaleX = previewCanvas.width / rect.width;
+    const scaleY = previewCanvas.height / rect.height;
+    const clickX = Math.floor((e.clientX - rect.left) * scaleX);
+    const clickY = Math.floor((e.clientY - rect.top) * scaleY);
 
-    // Sample from original image
-    const sampleCanvas = document.createElement('canvas');
-    sampleCanvas.width = previewCanvas.width;
-    sampleCanvas.height = previewCanvas.height;
-    const sCtx = sampleCanvas.getContext('2d');
-    if (!sCtx) return;
+    if (clickX < 0 || clickX >= previewCanvas.width || clickY < 0 || clickY >= previewCanvas.height) return;
 
-    sCtx.drawImage(sourceImg, 0, 0, sampleCanvas.width, sampleCanvas.height);
-    const pixel = sCtx.getImageData(Math.floor(clickX), Math.floor(clickY), 1, 1).data;
+    const offCtx = offscreenSourceCanvas.getContext('2d');
+    if (!offCtx) return;
+
+    const pixel = offCtx.getImageData(clickX, clickY, 1, 1).data;
+    if (pixel[3] < 10) return; // ignore transparent pixels outside image
 
     const rHex = pixel[0].toString(16).padStart(2, '0');
     const gHex = pixel[1].toString(16).padStart(2, '0');
@@ -308,7 +382,45 @@
     backgroundHex = `#${rHex}${gHex}${bHex}`.toUpperCase();
     ignoreBackground = true;
     isPickingBgColor = false;
+    hoveredPickColor = null;
     scheduleDigitize();
+  }
+
+  function handleCanvasPointerMove(e: MouseEvent) {
+    if (!isPickingBgColor || !previewCanvas || !offscreenSourceCanvas) {
+      hoveredPickColor = null;
+      return;
+    }
+    const rect = previewCanvas.getBoundingClientRect();
+    pickMousePos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+
+    const scaleX = previewCanvas.width / rect.width;
+    const scaleY = previewCanvas.height / rect.height;
+    const clickX = Math.floor((e.clientX - rect.left) * scaleX);
+    const clickY = Math.floor((e.clientY - rect.top) * scaleY);
+
+    if (clickX < 0 || clickX >= previewCanvas.width || clickY < 0 || clickY >= previewCanvas.height) {
+      hoveredPickColor = null;
+      return;
+    }
+
+    const offCtx = offscreenSourceCanvas.getContext('2d');
+    if (!offCtx) return;
+
+    const pixel = offCtx.getImageData(clickX, clickY, 1, 1).data;
+    if (pixel[3] < 10) {
+      hoveredPickColor = null;
+      return;
+    }
+
+    const rHex = pixel[0].toString(16).padStart(2, '0');
+    const gHex = pixel[1].toString(16).padStart(2, '0');
+    const bHex = pixel[2].toString(16).padStart(2, '0');
+    hoveredPickColor = `#${rHex}${gHex}${bHex}`.toUpperCase();
+  }
+
+  function handleCanvasPointerLeave() {
+    hoveredPickColor = null;
   }
 
   function handleApply() {
@@ -373,8 +485,27 @@
       <div class="flex-1 overflow-y-auto grid grid-cols-1 lg:grid-cols-12 gap-6 p-6">
         <!-- Left Column: Interactive Live Preview (7 cols) -->
         <div class="lg:col-span-7 flex flex-col space-y-3">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-semibold text-gray-300 uppercase tracking-wider">Preview Canvas</span>
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <!-- Framing Mode Selector -->
+            <div class="flex items-center space-x-1 bg-[#121216] p-1 rounded-lg border border-gray-800 text-xs">
+              <span class="text-[10px] text-gray-500 uppercase px-1 font-semibold">Frame:</span>
+              <button
+                type="button"
+                class="px-2 py-0.5 rounded transition-colors cursor-pointer text-xs {previewFrameMode === 'canvas' ? 'bg-indigo-600 text-white font-medium shadow' : 'text-gray-400 hover:text-gray-200'}"
+                on:click={() => { previewFrameMode = 'canvas'; renderPreview(); }}
+                title="Frame to Stitch Canvas boundary"
+              >
+                Canvas ({$grid.width}×{$grid.height})
+              </button>
+              <button
+                type="button"
+                class="px-2 py-0.5 rounded transition-colors cursor-pointer text-xs {previewFrameMode === 'image' ? 'bg-indigo-600 text-white font-medium shadow' : 'text-gray-400 hover:text-gray-200'}"
+                on:click={() => { previewFrameMode = 'image'; renderPreview(); }}
+                title="Frame tightly to Image boundary"
+              >
+                Image Only
+              </button>
+            </div>
             
             <!-- Preview Mode Switcher -->
             <div class="flex items-center space-x-1 bg-[#121216] p-1 rounded-lg border border-gray-800 text-xs">
@@ -414,13 +545,26 @@
                 bind:this={previewCanvas}
                 class="max-w-full max-h-full rounded shadow-xl object-contain {isPickingBgColor ? 'cursor-crosshair' : 'cursor-default'}"
                 on:click={handleCanvasClick}
+                on:pointermove={handleCanvasPointerMove}
+                on:pointerleave={handleCanvasPointerLeave}
               ></canvas>
             {/if}
 
             {#if isPickingBgColor}
-              <div class="absolute top-3 left-1/2 -translate-x-1/2 bg-cyan-900/90 border border-cyan-400 text-cyan-200 px-3 py-1 rounded-full text-xs font-medium shadow-lg animate-pulse">
-                Click any pixel on preview to select background color
+              <div class="absolute top-3 left-1/2 -translate-x-1/2 bg-cyan-900/95 border border-cyan-400 text-cyan-200 px-3.5 py-1.5 rounded-full text-xs font-medium shadow-lg animate-pulse flex items-center space-x-2 z-10">
+                <Pipette size={13} />
+                <span>Click any pixel on image to pick background color</span>
               </div>
+
+              {#if hoveredPickColor}
+                <div
+                  class="absolute pointer-events-none bg-[#161622]/95 border border-cyan-400 rounded-lg px-2.5 py-1.5 shadow-2xl flex items-center space-x-2 text-xs z-30 backdrop-blur"
+                  style="left: {Math.min(pickMousePos.x + 16, 420)}px; top: {Math.min(pickMousePos.y + 16, 380)}px;"
+                >
+                  <div class="w-4 h-4 rounded border border-black/40 shadow-sm" style="background-color: {hoveredPickColor};"></div>
+                  <span class="font-mono text-cyan-200 font-bold">{hoveredPickColor}</span>
+                </div>
+              {/if}
             {/if}
           </div>
 

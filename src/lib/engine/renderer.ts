@@ -767,10 +767,19 @@ export function getImageHandleAt(
   if (Math.abs(localX - (-hw)) <= handleRadius && Math.abs(localY) < hh) return 'w';
   if (Math.abs(localX - hw) <= handleRadius && Math.abs(localY) < hh) return 'e';
 
-  // Inside body
-  if (localX >= -hw && localX <= hw && localY >= -hh && localY <= hh) {
+  // Bounding border for moving/dragging the image layer
+  // A narrow band (8px) around the perimeter of the bounding box
+  const borderBand = 8;
+  const isNearBorder =
+    (Math.abs(localX - (-hw)) <= borderBand && localY >= -hh - borderBand && localY <= hh + borderBand) ||
+    (Math.abs(localX - hw) <= borderBand && localY >= -hh - borderBand && localY <= hh + borderBand) ||
+    (Math.abs(localY - (-hh)) <= borderBand && localX >= -hw - borderBand && localX <= hw + borderBand) ||
+    (Math.abs(localY - hh) <= borderBand && localX >= -hw - borderBand && localX <= hw + borderBand);
+
+  if (isNearBorder) {
     return 'body';
   }
 
+  // Inside body returns null to allow selection tools (Marquee, Lasso, Wand) or drawing to start inside
   return null;
 }

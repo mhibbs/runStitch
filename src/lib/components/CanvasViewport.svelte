@@ -1152,13 +1152,13 @@
       <div class="w-px h-3.5 bg-gray-700"></div>
 
       <!-- Hover Coordinate -->
-      <div class="font-mono flex items-center space-x-1 min-w-[80px]">
+      <div class="font-mono flex items-center text-xs whitespace-pre select-none tracking-tight">
         {#if $hoverCoord}
-          <span class="text-indigo-400 font-semibold">X: {$hoverCoord.x + 1}</span>
+          <span class="text-indigo-400 font-semibold">X:{String($hoverCoord.x + 1).padStart(3, ' ')}</span>
           <span class="text-gray-500">,</span>
-          <span class="text-indigo-400 font-semibold">Y: {$hoverCoord.y + 1}</span>
+          <span class="text-indigo-400 font-semibold">Y:{String($hoverCoord.y + 1).padStart(3, ' ')}</span>
         {:else}
-          <span class="text-gray-500">X: --, Y: --</span>
+          <span class="text-gray-500">X: --,Y: --</span>
         {/if}
       </div>
 
