@@ -403,39 +403,51 @@ export interface PatternBounds {
   width: number;
   height: number;
   totalStitches: number;
+  patternStitches: number;
+  pasteboardStitches: number;
 }
 
-// Live bounding box and total stitch count across all visible layers
-export const patternBounds = derived(layers, ($layers): PatternBounds | null => {
+// Live bounding box and total stitch count across all visible layers (Artboard vs Pasteboard)
+export const patternBounds = derived([layers, grid], ([$layers, $grid]): PatternBounds | null => {
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
-  let totalStitches = 0;
+  let patternStitches = 0;
+  let pasteboardStitches = 0;
 
   for (const layer of $layers) {
     if (!layer.visible) continue;
     for (const key of Object.keys(layer.stitches)) {
-      totalStitches++;
       const [xStr, yStr] = key.split(',');
       const x = parseInt(xStr, 10);
       const y = parseInt(yStr, 10);
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
+      const isInside = x >= 0 && x < $grid.width && y >= 0 && y < $grid.height;
+      if (isInside) {
+        patternStitches++;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      } else {
+        pasteboardStitches++;
+      }
     }
   }
 
+  const totalStitches = patternStitches + pasteboardStitches;
   if (totalStitches === 0) return null;
+
   return {
-    minX,
-    minY,
-    maxX,
-    maxY,
-    width: maxX - minX + 1,
-    height: maxY - minY + 1,
-    totalStitches
+    minX: patternStitches > 0 ? minX : 0,
+    minY: patternStitches > 0 ? minY : 0,
+    maxX: patternStitches > 0 ? maxX : 0,
+    maxY: patternStitches > 0 ? maxY : 0,
+    width: patternStitches > 0 ? maxX - minX + 1 : 0,
+    height: patternStitches > 0 ? maxY - minY + 1 : 0,
+    totalStitches,
+    patternStitches,
+    pasteboardStitches
   };
 });
 
@@ -1119,7 +1131,7 @@ export function commitFloatingSelection(): boolean {
         const [rx, ry] = relKey.split(',').map(Number);
         const gx = floating.x + rx;
         const gy = floating.y + ry;
-        if (gx >= 0 && gx < g.width && gy >= 0 && gy < g.height) {
+        if (gx >= -100 && gx < g.width + 100 && gy >= -100 && gy < g.height + 100) {
           const key = `${gx},${gy}`;
           beforeDelta[key] = updated[key] ? { ...updated[key] } : null;
           afterDelta[key] = { ...stitch };
@@ -1556,6 +1568,9 @@ export function computeTextLayerStitches(
     textData.letterSpacing ?? 0
   );
 
+  const padLeft = (canvas as any).padLeft || 0;
+  const padTop = (canvas as any).padTop || 0;
+
   const ctx = canvas.getContext('2d');
   if (!ctx) return {};
   const sampleW = canvas.width;
@@ -1581,15 +1596,16 @@ export function computeTextLayerStitches(
   const stitchesMap: Record<string, Stitch> = {};
   const originX = textData.x;
   const originY = textData.y;
+  const thresholdAlpha = Math.round((textData.threshold ?? 0.35) * 255);
 
   for (let y = 0; y < sampleH; y++) {
     for (let x = 0; x < sampleW; x++) {
       const idx = (y * sampleW + x) * 4;
       const alpha = sampleData[idx + 3];
-      if (alpha > 70) {
-        const gx = originX + x;
-        const gy = originY + y;
-        if (gx >= -200 && gx < gridWidth + 200 && gy >= -200 && gy < gridHeight + 200) {
+      if (alpha > thresholdAlpha) {
+        const gx = originX + x - padLeft;
+        const gy = originY + y - padTop;
+        if (gx >= -150 && gx < gridWidth + 150 && gy >= -150 && gy < gridHeight + 150) {
           stitchesMap[`${gx},${gy}`] = {
             colorId,
             type: 'full'
@@ -1615,24 +1631,12 @@ export function addTextLayer(config: {
   align?: 'left' | 'center' | 'right';
   lineHeight?: number;
   letterSpacing?: number;
+  threshold?: number;
 }): string {
   const currentGrid = get(grid);
   const activeClr = get(activeColor);
   const color = config.color || activeClr.hex || '#000000';
   const colorId = getOrAddPaletteColor(color);
-
-  const { width: w, height: h } = measureTextDimensions(
-    config.text,
-    config.fontFamily,
-    config.fontSize,
-    config.bold,
-    config.italic,
-    config.lineHeight ?? 1.25,
-    config.letterSpacing ?? 0
-  );
-
-  const x = config.x !== undefined ? config.x : Math.max(0, Math.floor((currentGrid.width - w) / 2));
-  const y = config.y !== undefined ? config.y : Math.max(0, Math.floor((currentGrid.height - h) / 2));
 
   const previewCanvas = rasterizeTextLayer(
     config.text,
@@ -1645,6 +1649,14 @@ export function addTextLayer(config: {
     config.lineHeight ?? 1.25,
     config.letterSpacing ?? 0
   );
+
+  const padLeft = (previewCanvas as any).padLeft || 0;
+  const padTop = (previewCanvas as any).padTop || 0;
+  const w = previewCanvas.width;
+  const h = previewCanvas.height;
+
+  const x = config.x !== undefined ? config.x : Math.max(0, Math.floor((currentGrid.width - (w - padLeft * 2)) / 2));
+  const y = config.y !== undefined ? config.y : Math.max(0, Math.floor((currentGrid.height - (h - padTop * 2)) / 2));
 
   const textData: TextLayerData = {
     text: config.text,
@@ -1660,7 +1672,10 @@ export function addTextLayer(config: {
     italic: config.italic || false,
     align: config.align || 'left',
     lineHeight: config.lineHeight ?? 1.25,
-    letterSpacing: config.letterSpacing ?? 0
+    letterSpacing: config.letterSpacing ?? 0,
+    threshold: config.threshold ?? 0.35,
+    padLeft,
+    padTop
   };
 
   const initialStitches = computeTextLayerStitches(textData, colorId, currentGrid.width, currentGrid.height);
@@ -1682,8 +1697,8 @@ export function addTextLayer(config: {
       src: previewCanvas.toDataURL(),
       naturalWidth: previewCanvas.width,
       naturalHeight: previewCanvas.height,
-      x,
-      y,
+      x: x - padLeft,
+      y: y - padTop,
       width: w,
       height: h,
       rotation: config.rotation || 0
@@ -1718,19 +1733,6 @@ export function updateTextLayer(layerId: string, updates: Partial<TextLayerData>
   const curGrid = get(grid);
   const colorId = getOrAddPaletteColor(merged.color);
 
-  const { width: w, height: h } = measureTextDimensions(
-    merged.text,
-    merged.fontFamily,
-    merged.fontSize,
-    merged.bold,
-    merged.italic,
-    merged.lineHeight ?? 1.25,
-    merged.letterSpacing ?? 0
-  );
-
-  merged.width = w;
-  merged.height = h;
-
   const previewCanvas = rasterizeTextLayer(
     merged.text,
     merged.fontFamily,
@@ -1742,6 +1744,16 @@ export function updateTextLayer(layerId: string, updates: Partial<TextLayerData>
     merged.lineHeight ?? 1.25,
     merged.letterSpacing ?? 0
   );
+
+  const padLeft = (previewCanvas as any).padLeft || 0;
+  const padTop = (previewCanvas as any).padTop || 0;
+  const w = previewCanvas.width;
+  const h = previewCanvas.height;
+
+  merged.width = w;
+  merged.height = h;
+  merged.padLeft = padLeft;
+  merged.padTop = padTop;
 
   const updatedStitches = computeTextLayerStitches(merged, colorId, curGrid.width, curGrid.height);
 
@@ -1759,8 +1771,8 @@ export function updateTextLayer(layerId: string, updates: Partial<TextLayerData>
           src: previewCanvas.toDataURL(),
           naturalWidth: previewCanvas.width,
           naturalHeight: previewCanvas.height,
-          x: merged.x,
-          y: merged.y,
+          x: merged.x - padLeft,
+          y: merged.y - padTop,
           width: w,
           height: h,
           rotation: merged.rotation
@@ -1804,22 +1816,13 @@ export function rasterizeTextLayerToStitches(layerId: string) {
   const shortText = target.textData?.text ? target.textData.text.split('\n')[0].slice(0, 16) : 'Text';
   const newName = target.name.startsWith('Text:') ? `Stitches: "${shortText}"` : target.name;
 
-  const g = get(grid);
-  const prunedStitches: Record<string, Stitch> = {};
-  for (const [key, stitch] of Object.entries(target.stitches)) {
-    const [x, y] = key.split(',').map(Number);
-    if (x >= 0 && x < g.width && y >= 0 && y < g.height) {
-      prunedStitches[key] = stitch;
-    }
-  }
-
   layers.update(ls => ls.map(l => {
     if (l.id === layerId) {
       return {
         ...l,
         name: newName,
         type: 'stitch',
-        stitches: prunedStitches,
+        stitches: { ...target.stitches },
         textData: undefined,
         image: undefined
       };
@@ -1849,10 +1852,13 @@ export function updateImageLayer(layerId: string, updates: Partial<ReferenceImag
   layers.update(ls => ls.map(l => {
     if (l.id === layerId && l.image) {
       const updatedImage = { ...l.image, ...updates };
+      const padLeft = l.textData?.padLeft || 0;
+      const padTop = l.textData?.padTop || 0;
+
       const updatedTextData = l.textData ? {
         ...l.textData,
-        x: updatedImage.x,
-        y: updatedImage.y,
+        x: updatedImage.x + padLeft,
+        y: updatedImage.y + padTop,
         width: updatedImage.width,
         height: updatedImage.height,
         rotation: updatedImage.rotation
@@ -1873,6 +1879,47 @@ export function updateImageLayer(layerId: string, updates: Partial<ReferenceImag
     }
     return l;
   }));
+}
+
+/**
+ * Clears any stitches residing outside the pattern artboard [0..width-1, 0..height-1].
+ * Useful for tidying up scratch work on the pasteboard.
+ */
+export function clearPasteboardStitches(layerId?: string) {
+  const g = get(grid);
+  const currentLayers = get(layers);
+
+  const beforeDelta: Record<string, Stitch | null> = {};
+  const afterDelta: Record<string, Stitch | null> = {};
+
+  layers.update(ls => ls.map(l => {
+    if (layerId && l.id !== layerId) return l;
+    if (l.locked) return l;
+    const updated = { ...l.stitches };
+    for (const [key, stitch] of Object.entries(l.stitches)) {
+      const [x, y] = key.split(',').map(Number);
+      if (x < 0 || x >= g.width || y < 0 || y >= g.height) {
+        beforeDelta[key] = { ...stitch };
+        afterDelta[key] = null;
+        delete updated[key];
+      }
+    }
+    return { ...l, stitches: updated };
+  }));
+
+  if (Object.keys(beforeDelta).length > 0) {
+    undoStack.update(u => [
+      ...u,
+      {
+        description: 'Clear Pasteboard Stitches',
+        layerId: layerId || 'all',
+        before: beforeDelta,
+        after: afterDelta,
+        layersSnapshot: currentLayers
+      }
+    ]);
+    redoStack.set([]);
+  }
 }
 
 export function rotateImageLayer(layerId: string, clockwise = true) {

@@ -43,6 +43,9 @@ export interface TextLayerData {
   bold?: boolean;
   italic?: boolean;
   align?: 'left' | 'center' | 'right';
+  threshold?: number;     // 0.15 to 0.75 (coverage threshold for stitch rasterization), default 0.35
+  padLeft?: number;       // Safety margin offset in cells for flourishes/italics
+  padTop?: number;        // Safety margin offset in cells
 }
 
 export type DitherMode = 'none' | 'floyd_steinberg' | 'atkinson';

@@ -46,7 +46,9 @@
     activeLayer,
     addReferenceImageLayer,
     openDigitizerForLayer,
-    openTextModal
+    openTextModal,
+    clearPasteboardStitches,
+    patternBounds
   } from '../stores/editorStore';
   import { SAMPLE_IMAGES } from '../data/sampleImages';
   import {
@@ -406,6 +408,18 @@
           <div class="flex items-center space-x-2">
             <Trash2 size={14} />
             <span>Clear Active Layer...</span>
+          </div>
+        </button>
+
+        <button
+          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-amber-600 hover:text-white transition-colors disabled:opacity-40"
+          on:click={() => { closeMenu(); clearPasteboardStitches(); }}
+          disabled={$patternBounds.pasteboardStitches === 0}
+          title="Remove stray stitches outside the pattern artboard"
+        >
+          <div class="flex items-center space-x-2">
+            <Trash2 size={14} class="text-amber-400" />
+            <span>Clear Pasteboard ({$patternBounds.pasteboardStitches})</span>
           </div>
         </button>
       </div>

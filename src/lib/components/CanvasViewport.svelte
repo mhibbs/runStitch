@@ -462,7 +462,8 @@
       return;
     }
 
-    if (x >= 0 && x < $grid.width && y >= 0 && y < $grid.height) {
+    const isWithinPasteboard = x >= -60 && x < $grid.width + 60 && y >= -60 && y < $grid.height + 60;
+    if (isWithinPasteboard) {
       if ($activeTool === 'pencil') {
         beginStroke('Pencil Stitch');
         setStitchAt(x, y, $selectedColorId);
@@ -645,9 +646,9 @@
       dynamicCursor = '';
     }
 
-    // Update hover coordinates
+    // Update hover coordinates (inside Artboard or on Pasteboard margin)
     const { x, y } = screenToGrid(e.clientX, e.clientY);
-    if (x >= 0 && x < $grid.width && y >= 0 && y < $grid.height) {
+    if (x >= -60 && x < $grid.width + 60 && y >= -60 && y < $grid.height + 60) {
       hoverCoord.set({ x, y });
     } else {
       hoverCoord.set(null);
@@ -687,8 +688,8 @@
 
     // Dragging marquee selection box
     if (isSelecting) {
-      const clampedX = Math.max(0, Math.min($grid.width - 1, x));
-      const clampedY = Math.max(0, Math.min($grid.height - 1, y));
+      const clampedX = Math.max(-60, Math.min($grid.width + 59, x));
+      const clampedY = Math.max(-60, Math.min($grid.height + 59, y));
       if (clampedX !== selectionStart.x || clampedY !== selectionStart.y) {
         didDragSelection = true;
         const minX = Math.min(selectionStart.x, clampedX);
@@ -727,16 +728,7 @@
 
     if (activePointers.size === 0) {
       if (isMovingStitchLayer && $activeLayer) {
-        const g = $grid;
-        const pruned: Record<string, Stitch> = {};
-        for (const [key, stitch] of Object.entries($activeLayer.stitches)) {
-          const [cx, cy] = key.split(',').map(Number);
-          if (cx >= 0 && cx < g.width && cy >= 0 && cy < g.height) {
-            pruned[key] = stitch;
-          }
-        }
-        layers.update(ls => ls.map(l => l.id === $activeLayer.id ? { ...l, stitches: pruned } : l));
-        commitLayerStitchesMove($activeLayer.id, moveLayerInitialStitches, pruned);
+        commitLayerStitchesMove($activeLayer.id, moveLayerInitialStitches, $activeLayer.stitches);
         isMovingStitchLayer = false;
         moveLayerInitialStitches = {};
         redrawStitches();
@@ -1288,12 +1280,16 @@
 
       <div class="w-px h-3.5 bg-gray-700"></div>
 
-      <!-- Hover Coordinate (3-character width per digit, left aligned: X:1  ,Y:999) -->
+      <!-- Hover Coordinate (with [Pasteboard] indicator when outside Artboard) -->
       <div class="font-mono flex items-center text-xs whitespace-pre select-none tracking-tight">
         {#if $hoverCoord}
-          <span class="text-indigo-400 font-semibold">X:{String($hoverCoord.x + 1).padEnd(3, ' ')}</span>
+          {@const isOutside = $hoverCoord.x < 0 || $hoverCoord.x >= $grid.width || $hoverCoord.y < 0 || $hoverCoord.y >= $grid.height}
+          <span class="{isOutside ? 'text-amber-400/90' : 'text-indigo-400'} font-semibold">X:{String($hoverCoord.x + 1).padEnd(3, ' ')}</span>
           <span class="text-gray-500">,</span>
-          <span class="text-indigo-400 font-semibold">Y:{String($hoverCoord.y + 1).padEnd(3, ' ')}</span>
+          <span class="{isOutside ? 'text-amber-400/90' : 'text-indigo-400'} font-semibold">Y:{String($hoverCoord.y + 1).padEnd(3, ' ')}</span>
+          {#if isOutside}
+            <span class="ml-1 text-[10px] text-amber-400/80 font-sans uppercase font-medium">[Pasteboard]</span>
+          {/if}
         {:else}
           <span class="text-gray-500">X:-- ,Y:-- </span>
         {/if}
@@ -1504,9 +1500,16 @@
           </div>
         </div>
       {:else if $patternBounds && $patternBounds.totalStitches > 0}
-        <span>Pattern is <strong class="text-indigo-300 font-medium">{$patternBounds.totalStitches} st</strong> in <strong class="text-indigo-200 font-medium">{$patternBounds.width}×{$patternBounds.height} st</strong> area <span class="text-gray-500">({formatDimensions($patternBounds.width, $patternBounds.height, $grid.fabricCount, $measurementUnit)})</span></span>
+        <span>
+          Pattern Artboard: <strong class="text-indigo-200 font-medium">{$grid.width}×{$grid.height} st</strong>
+          <span class="text-gray-500">({formatDimensions($grid.width, $grid.height, $grid.fabricCount, $measurementUnit)})</span>
+          &bull; <strong class="text-indigo-300 font-medium">{$patternBounds.patternStitches} st</strong> in pattern
+          {#if $patternBounds.pasteboardStitches > 0}
+            &bull; <span class="text-amber-400 font-medium">({$patternBounds.pasteboardStitches} on pasteboard)</span>
+          {/if}
+        </span>
       {:else}
-        <span class="text-gray-500 italic">Pattern is empty (0 stitches)</span>
+        <span>Pattern Artboard: <strong class="text-indigo-200 font-medium">{$grid.width}×{$grid.height} st</strong> &bull; <span class="text-gray-500 italic">0 stitches in pattern</span></span>
       {/if}
     </div>
   </div>

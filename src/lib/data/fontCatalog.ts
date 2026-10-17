@@ -214,9 +214,9 @@ function loadInitialFavorites(): string[] {
   if (typeof window === 'undefined') return [];
   try {
     const raw = localStorage.getItem('xstitcher_favorite_fonts');
-    return raw ? JSON.parse(raw) : ['Comfortaa', 'Cinzel', 'Silkscreen'];
+    return raw ? JSON.parse(raw) : DEFAULT_CURATED_FONTS.map(f => f.family);
   } catch {
-    return ['Comfortaa', 'Cinzel', 'Silkscreen'];
+    return DEFAULT_CURATED_FONTS.map(f => f.family);
   }
 }
 
@@ -352,7 +352,19 @@ export async function loadGoogleFont(fontInput: CuratedFont | string): Promise<b
 }
 
 /**
- * Calculates accurate bounding box dimensions in grid stitches for a given text configuration.
+export interface TextDimensionsResult {
+  width: number;
+  height: number;
+  padLeft: number;
+  padTop: number;
+  padRight: number;
+  padBottom: number;
+  lines: string[];
+}
+
+/**
+ * Calculates accurate bounding box dimensions in grid stitches for a given text configuration,
+ * including padding for script flourishes (like Great Vibes), italics, and descenders.
  */
 export function measureTextDimensions(
   text: string,
@@ -362,15 +374,31 @@ export function measureTextDimensions(
   italic: boolean = false,
   lineHeight: number = 1.25,
   letterSpacing: number = 0
-): { width: number; height: number; lines: string[] } {
+): TextDimensionsResult {
   if (typeof document === 'undefined') {
-    return { width: Math.max(10, text.length * Math.round(fontSize * 0.6)), height: fontSize, lines: [text] };
+    return {
+      width: Math.max(10, text.length * Math.round(fontSize * 0.6)),
+      height: fontSize,
+      padLeft: 0,
+      padTop: 0,
+      padRight: 0,
+      padBottom: 0,
+      lines: [text]
+    };
   }
 
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
   if (!ctx) {
-    return { width: Math.max(10, text.length * Math.round(fontSize * 0.6)), height: fontSize, lines: [text] };
+    return {
+      width: Math.max(10, text.length * Math.round(fontSize * 0.6)),
+      height: fontSize,
+      padLeft: 0,
+      padTop: 0,
+      padRight: 0,
+      padBottom: 0,
+      lines: [text]
+    };
   }
 
   const lines = text.split('\n');
@@ -378,26 +406,67 @@ export function measureTextDimensions(
   ctx.font = fontSpec;
 
   let maxLineWidth = 0;
+  let maxLeftExt = 0;
+  let maxRightExt = 0;
+  let maxAscent = 0;
+  let maxDescent = 0;
+
   for (const line of lines) {
     const metrics = ctx.measureText(line);
     const spacingExtra = letterSpacing * Math.max(0, line.length - 1);
     const lineWidth = metrics.width + spacingExtra;
     if (lineWidth > maxLineWidth) maxLineWidth = lineWidth;
+
+    if (metrics.actualBoundingBoxLeft !== undefined && metrics.actualBoundingBoxLeft > maxLeftExt) {
+      maxLeftExt = metrics.actualBoundingBoxLeft;
+    }
+    if (metrics.actualBoundingBoxRight !== undefined) {
+      const rightOverflow = metrics.actualBoundingBoxRight - metrics.width;
+      if (rightOverflow > maxRightExt) maxRightExt = rightOverflow;
+    }
+    if (metrics.actualBoundingBoxAscent !== undefined && metrics.actualBoundingBoxAscent > maxAscent) {
+      maxAscent = metrics.actualBoundingBoxAscent;
+    }
+    if (metrics.actualBoundingBoxDescent !== undefined && metrics.actualBoundingBoxDescent > maxDescent) {
+      maxDescent = metrics.actualBoundingBoxDescent;
+    }
   }
 
-  const totalHeight = Math.max(fontSize, Math.round(lines.length * fontSize * lineHeight));
-  const totalWidth = Math.max(1, Math.ceil(maxLineWidth));
+  // Generous padding for script flourishes (like Great Vibes), italics, and descenders
+  const isScript = fontFamily.toLowerCase().includes('vibes') || fontFamily.toLowerCase().includes('script') || fontFamily.toLowerCase().includes('cursive');
+  const scriptMargin = isScript ? Math.ceil(fontSize * 0.45) : Math.ceil(fontSize * 0.15);
+  const italicMargin = italic ? Math.ceil(fontSize * 0.35) : 0;
+
+  const padLeft = Math.max(Math.ceil(maxLeftExt), scriptMargin);
+  const padRight = Math.max(Math.ceil(maxRightExt), scriptMargin + italicMargin);
+  const padTop = Math.max(Math.ceil(maxAscent - fontSize * 0.8), Math.ceil(fontSize * 0.2));
+  const padBottom = Math.max(Math.ceil(maxDescent), Math.ceil(fontSize * 0.3));
+
+  const contentH = Math.max(fontSize, Math.round(lines.length * fontSize * lineHeight));
+  const totalWidth = Math.max(2, Math.ceil(maxLineWidth + padLeft + padRight));
+  const totalHeight = Math.max(2, Math.ceil(contentH + padTop + padBottom));
 
   return {
-    width: Math.max(2, totalWidth),
-    height: Math.max(2, totalHeight),
+    width: totalWidth,
+    height: totalHeight,
+    padLeft,
+    padTop,
+    padRight,
+    padBottom,
     lines
   };
 }
 
+export type PaddedCanvas = HTMLCanvasElement & {
+  padLeft: number;
+  padTop: number;
+  nominalWidth: number;
+  nominalHeight: number;
+};
+
 /**
- * Rasterizes text layer data into an offscreen canvas.
- * Can be used for digitizing into stitches or exporting.
+ * Rasterizes text layer data into an offscreen canvas with protective padding
+ * to prevent clipping of script flourishes and italics.
  */
 export function rasterizeTextLayer(
   text: string,
@@ -410,9 +479,9 @@ export function rasterizeTextLayer(
   lineHeight: number = 1.25,
   letterSpacing: number = 0,
   scale: number = 1
-): HTMLCanvasElement {
+): PaddedCanvas {
   const scaledSize = fontSize * scale;
-  const { width: rawW, height: rawH, lines } = measureTextDimensions(
+  const measured = measureTextDimensions(
     text,
     fontFamily,
     fontSize,
@@ -422,12 +491,19 @@ export function rasterizeTextLayer(
     letterSpacing
   );
 
-  const canvasW = Math.max(4, Math.ceil(rawW * scale));
-  const canvasH = Math.max(4, Math.ceil(rawH * scale));
+  const canvasW = Math.max(4, Math.ceil(measured.width * scale));
+  const canvasH = Math.max(4, Math.ceil(measured.height * scale));
+  const padLeftScaled = Math.ceil(measured.padLeft * scale);
+  const padTopScaled = Math.ceil(measured.padTop * scale);
 
-  const canvas = document.createElement('canvas');
+  const canvas = document.createElement('canvas') as PaddedCanvas;
   canvas.width = canvasW;
   canvas.height = canvasH;
+  canvas.padLeft = measured.padLeft;
+  canvas.padTop = measured.padTop;
+  canvas.nominalWidth = measured.width;
+  canvas.nominalHeight = measured.height;
+
   const ctx = canvas.getContext('2d');
   if (!ctx) return canvas;
 
@@ -441,12 +517,12 @@ export function rasterizeTextLayer(
 
   const lineStep = scaledSize * lineHeight;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const yPos = i * lineStep;
-    let xPos = 0;
-    if (align === 'center') xPos = canvasW / 2;
-    else if (align === 'right') xPos = canvasW;
+  for (let i = 0; i < measured.lines.length; i++) {
+    const line = measured.lines[i];
+    const yPos = padTopScaled + i * lineStep;
+    let xPos = padLeftScaled;
+    if (align === 'center') xPos = padLeftScaled + (canvasW - padLeftScaled - Math.ceil(measured.padRight * scale)) / 2;
+    else if (align === 'right') xPos = canvasW - Math.ceil(measured.padRight * scale);
 
     ctx.fillText(line, xPos, yPos);
   }

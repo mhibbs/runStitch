@@ -208,14 +208,26 @@ To ensure instant $O(1)$ lookups, low memory usage, and zero GC stutter during c
     * **Dynamic Handle-Based Font Resizing**: Dragging transform handles scales `fontSize` in real time while maintaining vector text properties, alignment, and spacing.
     * **Photoshop-Style Rasterization**: "Rasterize to Stitches" action converts text layers into normal editable stitch layers with sparse undo/redo history.
     * **Double-Click to Edit**: Double-clicking on an active or hovered text layer directly on the canvas opens the typography editor immediately.
-  * **Non-Destructive Move Off-Canvas**:
-    * Dragging stitch layers or selections with Move Tool (`M`) shifts all original stitches non-destructively; stitches moving off-canvas are preserved during drag and only clipped on pointer release.
-    * Single atomic history delta recorded upon drop for instant undo/redo (`Cmd+Z`).
-  * **Typography Studio Redesign (`TextModal.svelte` & `fontCatalog.ts`)**:
-    * **Curated 1-Per-Category Defaults**: Fast, uncluttered font list featuring 1 primary typeface per category (*Yarndings 20*, *Silkscreen*, *Great Vibes*, *Cinzel*, *Comfortaa*), expandable to full Google catalog.
-    * **Custom Dropdown with Live Typeface Previews**: Live visual font rendering for each typeface in the selector.
-    * **Favorite Fonts & Local TTF/OTF Upload**: Star favorite fonts with `localStorage` persistence, plus upload custom font files (`.ttf`, `.otf`, `.woff`, `.woff2`) via browser `FontFace` API.
-    * **Accurate Stitch Preview Scaling**: Constant cell scaling ensures smaller font sizes render smaller stitches so more text fits into view; functional zoom controls.
+  * **Font Bounding Box & Protective Swash Padding**:
+    * Full font metric extent measurement using `actualBoundingBoxLeft`, `actualBoundingBoxRight`, `actualBoundingBoxAscent`, and `actualBoundingBoxDescent`.
+    * Automatic detection of cursive/script flourishes and italic overhangs (e.g. *Great Vibes*), expanding internal canvas buffer with protective padding (`padLeft`, `padTop`, `padRight`, `padBottom`).
+    * Transform bounding box aligns snugly with `layer.image.x = textData.x - padLeft` and `layer.image.y = textData.y - padTop`, ensuring no glyph flourishes or italics are clipped or lean outside the box.
+  * **Interactive Stitch Thickness / Rasterization Weight Control**:
+    * Continuous slider (10% to 90%, default 50% / balanced) controlling the alpha threshold for stitch rasterization.
+    * Labels: *Delicate / Thin* (higher threshold, capturing only core glyph strokes) ↔ *Chunky / Bold* (lower threshold, converting anti-aliased edge coverage to stitches).
+    * Real-time live update of the stitch preview grid and on-canvas stitches.
+  * **Font Dropdown Stars & Pinned Favorites Organization**:
+    * Gold star represents pinned favorite fonts, persisted to `localStorage`.
+    * Section 1: ⭐ **Pinned Favorites** at the top with gold stars; unpinning moves the font down.
+    * Section 2: ➕ **More Google Fonts** categorized and searchable; clicking an outline star immediately pins the font and moves it into favorites.
+    * Section 3: 📁 **Uploaded Custom Fonts** (.ttf, .otf, .woff, .woff2).
+    * Section 4: 🔍 **Custom Google Font** loader by name.
+  * **Illustrator-Style Artboard & Pasteboard System**:
+    * **Artboard vs. Pasteboard**: Official pattern area defined within the Artboard (`[0..width-1, 0..height-1]`) with Aida cloth texture, 10x10 numbered grid lines, center point indicators, crisp boundary frame, and drop shadow.
+    * **Non-Destructive Staging Pasteboard**: Stitches, motifs, and test elements dragged outside the pattern boundary are preserved on the pasteboard rather than deleted.
+    * **Dimmed Staging Visualization**: Stitches outside the artboard render faded at 40% opacity, making the active pattern area unmistakable.
+    * **HUD & Status Indicators**: Coordinate tracker displays `[Pasteboard]` with amber indicator; status bar shows exact count of stitches in pattern vs. staging pasteboard.
+    * **Clean Pasteboard Action**: Edit menu command to clear stray pasteboard stitches in a single undoable step.
   * **Layer Manager & Workspace Ergonomics**:
     * **Toggle Non-Stitch Layers**: Dedicated toggle button (`Eye` / `EyeOff`) next to copy/flatten to hide reference images and vector text layers for clean pattern and mockup inspection.
     * **Bounded "+ New" Layer Dropdown**: Constrained dropdown height (`max-h-[min(360px,calc(100vh-140px))]`) preventing overflow past the bottom of the window.

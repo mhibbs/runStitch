@@ -51,6 +51,7 @@
   let selectedFontFamily = DEFAULT_CURATED_FONTS[0].family;
   let customFontInput = '';
   let fontSize = 16;
+  let rasterStrength = 50; // 10 (Fine / Delicate) to 90 (Chunky / Bold)
   let isBold = false;
   let isItalic = false;
   let alignment: 'left' | 'center' | 'right' = 'center';
@@ -64,6 +65,11 @@
   let previewType: 'stitched' | 'smooth' = 'stitched';
   let previewCanvasEl: HTMLCanvasElement;
   let previewZoom = 1.0;
+
+  // Threshold computed from rasterStrength: 10% -> 0.60 (delicate), 50% -> 0.35 (balanced default), 90% -> 0.15 (chunky bold)
+  $: threshold = rasterStrength <= 50
+    ? 0.35 + ((50 - rasterStrength) / 40) * 0.25
+    : 0.35 - ((rasterStrength - 50) / 40) * 0.20;
 
   onMount(() => {
     preloadAllCuratedFonts();
@@ -82,6 +88,18 @@
         alignment = target.textData.align || 'center';
         chosenColorHex = target.textData.color;
 
+        if (target.textData.threshold !== undefined) {
+          const t = target.textData.threshold;
+          if (t <= 0.35) {
+            rasterStrength = Math.round(50 + ((0.35 - t) / 0.20) * 40);
+          } else {
+            rasterStrength = Math.round(50 - ((t - 0.35) / 0.25) * 40);
+          }
+          rasterStrength = Math.max(10, Math.min(90, rasterStrength));
+        } else {
+          rasterStrength = 50;
+        }
+
         const match = CURATED_FONTS.find(f => f.family.toLowerCase() === target.textData?.fontFamily.toLowerCase())
           || $customUploadedFonts.find(f => f.family.toLowerCase() === target.textData?.fontFamily.toLowerCase());
         if (match) {
@@ -94,11 +112,21 @@
       }
     } else {
       chosenColorHex = $activeColor.hex;
+      rasterStrength = 50;
     }
   }
 
   // Active family
   $: currentFamily = (selectedFontFamily === 'custom' ? customFontInput.trim() : selectedFontFamily) || DEFAULT_CURATED_FONTS[0].family;
+
+  // Filtered and organized fonts for the dropdown
+  $: filteredFonts = CURATED_FONTS.filter(f =>
+    !fontSearchQuery ||
+    f.name.toLowerCase().includes(fontSearchQuery.toLowerCase()) ||
+    f.category.toLowerCase().includes(fontSearchQuery.toLowerCase())
+  );
+  $: pinnedFavorites = filteredFonts.filter(f => $favoriteFontFamilies.includes(f.family));
+  $: otherFonts = filteredFonts.filter(f => !$favoriteFontFamilies.includes(f.family));
 
   // Load font dynamically if custom or not yet cached
   $: {
@@ -116,11 +144,11 @@
   $: inchWidth = (dimensions.width / $grid.fabricCount).toFixed(1);
   $: inchHeight = (dimensions.height / $grid.fabricCount).toFixed(1);
 
-  // Re-render stitch preview when any parameter changes, including previewZoom
+  // Re-render stitch preview when any parameter changes, including previewZoom and threshold
   $: if (
     previewCanvasEl &&
     previewType === 'stitched' &&
-    (text || currentFamily || fontSize || isBold || isItalic || chosenColorHex || alignment || $fabricColor || $fontsReadyTrigger || previewZoom)
+    (text || currentFamily || fontSize || isBold || isItalic || chosenColorHex || alignment || $fabricColor || $fontsReadyTrigger || previewZoom || threshold)
   ) {
     renderStitchPreview();
   }
@@ -190,13 +218,16 @@
       ctx.stroke();
     }
 
+    // Cutoff based on rasterStrength (10 to 90) -> threshold
+    const thresholdAlpha = Math.round(threshold * 255);
+
     // Render stitches
     let stitchCount = 0;
     for (let y = 0; y < rH; y++) {
       for (let x = 0; x < rW; x++) {
         const idx = (y * rW + x) * 4;
         const alpha = imgData[idx + 3];
-        if (alpha > 70) {
+        if (alpha >= thresholdAlpha) {
           stitchCount++;
           const px = x * cellSize;
           const py = y * cellSize;
@@ -232,7 +263,8 @@
         color: chosenColorHex,
         bold: isBold,
         italic: isItalic,
-        align: alignment
+        align: alignment,
+        threshold
       });
     } else {
       addTextLayer({
@@ -242,7 +274,8 @@
         color: chosenColorHex,
         bold: isBold,
         italic: isItalic,
-        align: alignment
+        align: alignment,
+        threshold
       });
     }
 
@@ -261,7 +294,8 @@
         color: chosenColorHex,
         bold: isBold,
         italic: isItalic,
-        align: alignment
+        align: alignment,
+        threshold
       });
     } else {
       updateTextLayer(targetLayerId, {
@@ -271,7 +305,8 @@
         color: chosenColorHex,
         bold: isBold,
         italic: isItalic,
-        align: alignment
+        align: alignment,
+        threshold
       });
     }
 
@@ -388,43 +423,52 @@
                   </button>
                 </div>
 
-                <!-- 1. Primary Default Curated Fonts (1 per Category) -->
+                <!-- 1. Pinned Favorites Section -->
                 <div>
-                  <div class="text-[10px] uppercase font-bold text-gray-400 px-1 py-1 flex items-center justify-between">
-                    <span>Default Curated Fonts (1 per Category)</span>
+                  <div class="text-[10px] uppercase font-bold text-amber-400 px-1 py-1 flex items-center justify-between">
+                    <div class="flex items-center space-x-1">
+                      <Star size={11} class="fill-amber-400 text-amber-400" />
+                      <span>Pinned Favorites ({pinnedFavorites.length})</span>
+                    </div>
                   </div>
-                  <div class="space-y-1">
-                    {#each DEFAULT_CURATED_FONTS.filter(f => !fontSearchQuery || f.name.toLowerCase().includes(fontSearchQuery.toLowerCase())) as font}
-                      <button
-                        type="button"
-                        class="w-full text-left group flex items-center justify-between px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer {selectedFontFamily === font.family ? 'bg-indigo-600 text-white' : 'hover:bg-[#282838] text-gray-200'}"
-                        on:click={() => { selectedFontFamily = font.family; isFontDropdownOpen = false; }}
-                      >
-                        <div class="flex items-center space-x-2 truncate">
-                          <span
-                            role="button"
-                            tabindex="0"
-                            class="text-gray-400 hover:text-amber-400 p-0.5 rounded cursor-pointer"
-                            on:click|stopPropagation={() => toggleFavoriteFont(font.family)}
-                            on:keydown|stopPropagation={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFavoriteFont(font.family); } }}
-                            title="Favorite font"
-                          >
-                            <Star size={12} class="{$favoriteFontFamilies.includes(font.family) ? 'fill-amber-400 text-amber-400' : ''}" />
-                          </span>
-                          <span class="font-medium text-xs">{font.name}</span>
-                          <span class="text-[10px] px-1.5 py-0.2 rounded bg-black/30 text-gray-400 uppercase font-mono">
-                            {font.category}
-                          </span>
-                        </div>
-                        <span
-                          class="text-sm font-normal text-right truncate max-w-[120px] opacity-90"
-                          style="font-family: '{font.family}', sans-serif;"
+                  {#if pinnedFavorites.length === 0}
+                    <div class="px-2 py-1.5 text-[11px] text-gray-500 italic">
+                      No pinned fonts. Click the star on any font below to pin it here.
+                    </div>
+                  {:else}
+                    <div class="space-y-1">
+                      {#each pinnedFavorites as font}
+                        <button
+                          type="button"
+                          class="w-full text-left group flex items-center justify-between px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer {selectedFontFamily === font.family ? 'bg-indigo-600 text-white' : 'hover:bg-[#282838] text-gray-200'}"
+                          on:click={() => { selectedFontFamily = font.family; isFontDropdownOpen = false; }}
                         >
-                          {font.sampleText}
-                        </span>
-                      </button>
-                    {/each}
-                  </div>
+                          <div class="flex items-center space-x-2 truncate">
+                            <span
+                              role="button"
+                              tabindex="0"
+                              class="text-amber-400 hover:text-amber-300 p-0.5 rounded cursor-pointer"
+                              on:click|stopPropagation={() => toggleFavoriteFont(font.family)}
+                              on:keydown|stopPropagation={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFavoriteFont(font.family); } }}
+                              title="Unpin from favorites"
+                            >
+                              <Star size={12} class="fill-amber-400 text-amber-400" />
+                            </span>
+                            <span class="font-medium text-xs">{font.name}</span>
+                            <span class="text-[10px] px-1.5 py-0.2 rounded bg-black/30 text-gray-400 uppercase font-mono">
+                              {font.category}
+                            </span>
+                          </div>
+                          <span
+                            class="text-sm font-normal text-right truncate max-w-[120px] opacity-90"
+                            style="font-family: '{font.family}', sans-serif;"
+                          >
+                            {font.sampleText}
+                          </span>
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
                 </div>
 
                 <!-- 2. User Uploaded Fonts (if any) -->
@@ -451,11 +495,14 @@
                   </div>
                 {/if}
 
-                <!-- 3. Extended Google Fonts Catalog -->
+                <!-- 3. Browse More Google Fonts (Categorized / Pin to Favorites) -->
                 <div class="pt-1.5 border-t border-gray-800">
-                  <div class="text-[10px] uppercase font-bold text-gray-400 px-1 py-0.5">More Google Fonts</div>
+                  <div class="text-[10px] uppercase font-bold text-gray-400 px-1 py-1 flex items-center justify-between">
+                    <span>More Google Fonts ({otherFonts.length})</span>
+                    <span class="text-[9px] text-gray-500 font-normal">Click star to pin</span>
+                  </div>
                   <div class="space-y-1">
-                    {#each EXTENDED_FONTS.filter(f => !fontSearchQuery || f.name.toLowerCase().includes(fontSearchQuery.toLowerCase())) as font}
+                    {#each otherFonts as font}
                       <button
                         type="button"
                         class="w-full text-left flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#282838] text-gray-300 hover:text-white cursor-pointer {selectedFontFamily === font.family ? 'bg-indigo-600 text-white' : ''}"
@@ -465,14 +512,17 @@
                           <span
                             role="button"
                             tabindex="0"
-                            class="text-gray-400 hover:text-amber-400 p-0.5 rounded cursor-pointer"
+                            class="text-gray-500 hover:text-amber-400 p-0.5 rounded cursor-pointer"
                             on:click|stopPropagation={() => toggleFavoriteFont(font.family)}
                             on:keydown|stopPropagation={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFavoriteFont(font.family); } }}
-                            title="Favorite font"
+                            title="Pin to favorites"
                           >
-                            <Star size={12} class="{$favoriteFontFamilies.includes(font.family) ? 'fill-amber-400 text-amber-400' : ''}" />
+                            <Star size={12} class="hover:fill-amber-400" />
                           </span>
                           <span class="text-xs">{font.name}</span>
+                          <span class="text-[9px] px-1.5 py-0.2 rounded bg-black/30 text-gray-400 uppercase font-mono">
+                            {font.category}
+                          </span>
                         </div>
                         <span
                           class="text-xs text-right truncate max-w-[120px] opacity-80"
@@ -526,6 +576,37 @@
               bind:value={fontSize}
               class="w-full accent-indigo-500 cursor-pointer h-1.5 bg-gray-700 rounded"
             />
+          </div>
+
+          <!-- Stitch Thickness / Rasterization Weight Slider -->
+          <div class="bg-[#20202c] border border-gray-800 rounded-xl p-3 space-y-2">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center space-x-1.5">
+                <span class="text-xs text-gray-300 font-medium">Stitch Thickness</span>
+                <span class="text-[10px] text-gray-400">
+                  {#if rasterStrength < 35}
+                    (Fine / Delicate)
+                  {:else if rasterStrength > 65}
+                    (Chunky / Bold)
+                  {:else}
+                    (Balanced)
+                  {/if}
+                </span>
+              </div>
+              <span class="font-mono text-indigo-400 font-bold text-xs">{rasterStrength}%</span>
+            </div>
+            <input
+              type="range"
+              min="10"
+              max="90"
+              step="5"
+              bind:value={rasterStrength}
+              class="w-full accent-indigo-500 cursor-pointer h-1.5 bg-gray-700 rounded"
+            />
+            <div class="flex justify-between text-[10px] text-gray-500 font-mono">
+              <span>Delicate / Thin</span>
+              <span>Chunky / Bold</span>
+            </div>
           </div>
 
           <!-- Style & Alignment Row -->

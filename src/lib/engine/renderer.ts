@@ -103,10 +103,52 @@ export function renderBackground(
   const gridPixelW = grid.width * zoom;
   const gridPixelH = grid.height * zoom;
 
-  // Background fabric color (in symbols_only, use crisp white for print clarity, else use chosen fabricColor)
+  // 1. Pasteboard Staging Mat (Workspace surrounding the pattern artboard)
+  const pbMargin = 60 * zoom;
+  const pbX = panX - pbMargin;
+  const pbY = panY - pbMargin;
+  const pbW = gridPixelW + pbMargin * 2;
+  const pbH = gridPixelH + pbMargin * 2;
+
+  // Dark slate workspace staging mat behind artboard
+  ctx.fillStyle = '#171720';
+  ctx.fillRect(pbX, pbY, pbW, pbH);
+
+  // Subtle alignment grid on pasteboard so staging stitches can be counted and aligned
+  if (zoom >= 8) {
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.035)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const pbStartCell = -60;
+    const pbEndCellX = grid.width + 60;
+    const pbEndCellY = grid.height + 60;
+    for (let x = pbStartCell; x <= pbEndCellX; x += 5) {
+      if (x >= 0 && x <= grid.width) continue;
+      const px = Math.floor(panX + x * zoom) + 0.5;
+      ctx.moveTo(px, Math.max(0, pbY));
+      ctx.lineTo(px, Math.min(height, pbY + pbH));
+    }
+    for (let y = pbStartCell; y <= pbEndCellY; y += 5) {
+      if (y >= 0 && y <= grid.height) continue;
+      const py = Math.floor(panY + y * zoom) + 0.5;
+      ctx.moveTo(Math.max(0, pbX), py);
+      ctx.lineTo(Math.min(width, pbX + pbW), py);
+    }
+    ctx.stroke();
+  }
+
+  // 2. Pattern Artboard Canvas (The official embroidery area)
   const bg = viewMode === 'symbols_only' ? '#FFFFFF' : fabricColorHex;
+
+  // Deep Artboard Drop Shadow onto the pasteboard
+  ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.65)';
+  ctx.shadowBlur = Math.min(28, Math.max(8, zoom * 0.8));
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = Math.min(10, Math.max(4, zoom * 0.25));
   ctx.fillStyle = bg;
   ctx.fillRect(panX, panY, gridPixelW, gridPixelH);
+  ctx.restore();
 
   // Subtle fabric texture if in mockup mode
   if (viewMode === 'mockup' && zoom >= 12) {
@@ -128,10 +170,19 @@ export function renderBackground(
     }
   }
 
-  // Shadow around the cloth canvas
-  ctx.strokeStyle = '#3c3c48';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(panX, panY, gridPixelW, gridPixelH);
+  // Crisp Artboard Frame
+  ctx.strokeStyle = 'rgba(99, 102, 241, 0.6)';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(panX - 0.5, panY - 0.5, gridPixelW + 1, gridPixelH + 1);
+
+  // Artboard Pill Header (Top-Left)
+  if (zoom >= 8) {
+    ctx.font = '500 11px system-ui, -apple-system, sans-serif';
+    ctx.fillStyle = 'rgba(165, 180, 252, 0.85)';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(`Pattern Artboard • ${grid.width} × ${grid.height} st`, panX + 2, panY - 5);
+  }
 
   ctx.restore();
 }
@@ -215,6 +266,9 @@ export function renderStitches(
 
         const color = paletteMap.get(stitch.colorId);
         if (!color) continue;
+
+        const isInsideArtboard = x >= 0 && x < grid.width && y >= 0 && y < grid.height;
+        ctx.globalAlpha = layer.opacity * (isInsideArtboard ? 1.0 : 0.40);
 
         const px = panX + x * zoom;
         const py = panY + y * zoom;
