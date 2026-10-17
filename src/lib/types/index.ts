@@ -14,14 +14,41 @@ export interface PaletteColor {
   symbolColor?: string; // High contrast text color for the symbol
 }
 
+export type LayerType = 'stitch' | 'image';
+
+export interface ReferenceImage {
+  src: string;          // Data URL or URL of the image
+  naturalWidth: number;
+  naturalHeight: number;
+  x: number;            // Top-left in grid coordinates (cells)
+  y: number;            // Top-left in grid coordinates (cells)
+  width: number;        // Width in grid cells
+  height: number;       // Height in grid cells
+  rotation: number;     // 0, 90, 180, 270 degrees
+}
+
+export type DitherMode = 'none' | 'floyd_steinberg' | 'atkinson';
+
+export interface DigitizerOptions {
+  maxColors: number;
+  ditherMode: DitherMode;
+  ignoreBackground: boolean;
+  backgroundHex?: string;
+  backgroundTolerance?: number; // 0-100
+  targetLayer: 'new' | 'active';
+  keepReferenceLayer: boolean;
+}
+
 export interface Layer {
   id: string;
   name: string;
+  type?: LayerType;
   visible: boolean;
   locked: boolean;
   opacity: number;
   // Keyed by "x,y" coordinate string for sparse O(1) access
   stitches: Record<string, Stitch>;
+  image?: ReferenceImage;
   // Bounding box for dirty rendering
   bounds?: {
     minX: number;

@@ -3,18 +3,20 @@ import { getColorLuminance, DMC_CATALOG } from '../data/dmcPalette';
 
 const GLOBAL_DMC_MAP = new Map(DMC_CATALOG.map(d => [d.code, d.hex]));
 
-export interface RenderContext {
-  bgCanvas: HTMLCanvasElement;
-  stitchCanvas: HTMLCanvasElement;
-  overlayCanvas: HTMLCanvasElement;
-  grid: GridDimensions;
-  layers: Layer[];
-  palette: PaletteColor[];
-  viewport: Viewport;
-  viewMode: ViewMode;
-  showGrid: boolean;
-  hoverCoord: { x: number; y: number } | null;
-  activeColorHex: string;
+// Image element cache for smooth 60fps reference layer rendering
+const imageElementCache = new Map<string, HTMLImageElement>();
+
+export function getCachedImageElement(src: string, onLoaded?: () => void): HTMLImageElement | null {
+  let img = imageElementCache.get(src);
+  if (!img) {
+    img = new Image();
+    img.src = src;
+    imageElementCache.set(src, img);
+    if (onLoaded) {
+      img.onload = onLoaded;
+    }
+  }
+  return img.complete && img.naturalWidth > 0 ? img : null;
 }
 
 // Hardware-accelerated stitch sprite cache for 60 FPS Mockup rendering
@@ -144,7 +146,8 @@ export function renderStitches(
   layers: Layer[],
   palette: PaletteColor[],
   viewMode: ViewMode,
-  showGrid: boolean
+  showGrid: boolean,
+  onImageLoaded?: () => void
 ) {
   ctx.save();
   ctx.clearRect(0, 0, width, height);
@@ -163,11 +166,38 @@ export function renderStitches(
   const startY = Math.max(0, Math.floor(-panY / zoom));
   const endY = Math.min(grid.height, Math.ceil((height - panY) / zoom));
 
-  // Render stitches layer by layer
+  // Render layers in stack order
   for (const layer of layers) {
     if (!layer.visible || layer.opacity <= 0) continue;
 
     ctx.globalAlpha = layer.opacity;
+
+    // 1. Reference Image Layer
+    if (layer.type === 'image' && layer.image) {
+      const img = getCachedImageElement(layer.image.src, onImageLoaded);
+      if (img) {
+        const { x, y, width: iw, height: ih, rotation = 0 } = layer.image;
+        const px = panX + x * zoom;
+        const py = panY + y * zoom;
+        const pw = iw * zoom;
+        const ph = ih * zoom;
+
+        ctx.save();
+        if (rotation % 360 !== 0) {
+          const cx = px + pw / 2;
+          const cy = py + ph / 2;
+          ctx.translate(cx, cy);
+          ctx.rotate((rotation * Math.PI) / 180);
+          ctx.drawImage(img, -pw / 2, -ph / 2, pw, ph);
+        } else {
+          ctx.drawImage(img, px, py, pw, ph);
+        }
+        ctx.restore();
+      }
+      continue;
+    }
+
+    // 2. Stitch Layer
 
     for (let y = startY; y < endY; y++) {
       for (let x = startX; x < endX; x++) {
@@ -317,12 +347,96 @@ export function renderOverlay(
   activeTool: ActiveTool = 'pencil',
   dashOffset: number = 0,
   shapePreviewCells: { x: number; y: number }[] | null = null,
-  activeStamp: MotifStamp | null = null
+  activeStamp: MotifStamp | null = null,
+  activeImageLayer: Layer | null = null
 ) {
   ctx.save();
   ctx.clearRect(0, 0, width, height);
 
   const { zoom, panX, panY } = viewport;
+
+  // 0. Render Active Image Layer Transform Frame & Handles
+  if (activeImageLayer && activeImageLayer.type === 'image' && activeImageLayer.image && activeImageLayer.visible) {
+    const img = activeImageLayer.image;
+    const cx = panX + (img.x + img.width / 2) * zoom;
+    const cy = panY + (img.y + img.height / 2) * zoom;
+    const hw = (img.width * zoom) / 2;
+    const hh = (img.height * zoom) / 2;
+    const rad = ((img.rotation || 0) * Math.PI) / 180;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    if (rad !== 0) ctx.rotate(rad);
+
+    // Bounding frame with dashed cyan outline
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 4]);
+    ctx.lineDashOffset = -dashOffset;
+    ctx.strokeStyle = '#06B6D4'; // Cyan-500
+    ctx.strokeRect(-hw, -hh, hw * 2, hh * 2);
+    ctx.setLineDash([]);
+
+    // Helper for handle squares
+    function drawHandle(hx: number, hy: number) {
+      ctx.fillStyle = '#FFFFFF';
+      ctx.strokeStyle = '#0891B2';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.rect(hx - 5, hy - 5, 10, 10);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // 4 Corner handles
+    drawHandle(-hw, -hh); // NW
+    drawHandle(hw, -hh);  // NE
+    drawHandle(hw, hh);   // SE
+    drawHandle(-hw, hh);  // SW
+
+    // 4 Edge handles
+    drawHandle(0, -hh);   // N
+    drawHandle(hw, 0);    // E
+    drawHandle(0, hh);    // S
+    drawHandle(-hw, 0);   // W
+
+    // Rotation handle with connector stem
+    ctx.strokeStyle = '#06B6D4';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, -hh);
+    ctx.lineTo(0, -hh - 22);
+    ctx.stroke();
+
+    ctx.fillStyle = '#06B6D4';
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, -hh - 22, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Dimensions badge
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+    ctx.strokeStyle = '#0891B2';
+    ctx.lineWidth = 1;
+    const badgeText = `${Math.round(img.width)} × ${Math.round(img.height)} stitches${img.rotation ? ` • ${img.rotation}°` : ''}`;
+    ctx.font = '600 11px system-ui, sans-serif';
+    const textW = ctx.measureText(badgeText).width;
+    const badgeX = -textW / 2 - 8;
+    const badgeY = hh + 12;
+
+    ctx.beginPath();
+    ctx.roundRect(badgeX, badgeY, textW + 16, 22, 4);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#E2E8F0';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(badgeText, 0, badgeY + 11);
+
+    ctx.restore();
+  }
 
   // 1. Render active Marquee Selection (Marching Ants)
   if (selection && selection.width > 0 && selection.height > 0) {
@@ -507,7 +621,8 @@ export function renderOverlay(
 
   // 5. Render standard single-cell hover cursor
   const isDraggingShape = shapePreviewCells && shapePreviewCells.length > 0;
-  if (hoverCoord && !floatingSelection && activeTool !== 'select' && activeTool !== 'stamp' && !isDraggingShape) {
+  const isImageActive = activeImageLayer && activeImageLayer.type === 'image';
+  if (hoverCoord && !floatingSelection && activeTool !== 'select' && activeTool !== 'stamp' && !isDraggingShape && !isImageActive) {
     const { x, y } = hoverCoord;
     if (x >= 0 && x < grid.width && y >= 0 && y < grid.height) {
       const px = panX + x * zoom;
@@ -527,4 +642,54 @@ export function renderOverlay(
   }
 
   ctx.restore();
+}
+
+export type ImageHandleType = 'nw' | 'ne' | 'se' | 'sw' | 'n' | 'e' | 's' | 'w' | 'rotate' | 'body';
+
+export function getImageHandleAt(
+  screenX: number,
+  screenY: number,
+  image: { x: number; y: number; width: number; height: number; rotation?: number },
+  viewport: Viewport
+): ImageHandleType | null {
+  const { zoom, panX, panY } = viewport;
+  const cx = panX + (image.x + image.width / 2) * zoom;
+  const cy = panY + (image.y + image.height / 2) * zoom;
+  const hw = (image.width * zoom) / 2;
+  const hh = (image.height * zoom) / 2;
+  const rad = ((image.rotation || 0) * Math.PI) / 180;
+
+  // Un-rotate the point around image center to test in local axis-aligned coords
+  const dx = screenX - cx;
+  const dy = screenY - cy;
+  const cos = Math.cos(-rad);
+  const sin = Math.sin(-rad);
+  const localX = dx * cos - dy * sin;
+  const localY = dx * sin + dy * cos;
+
+  const handleRadius = 12;
+
+  // Rotation handle is at (0, -hh - 22)
+  if (Math.hypot(localX, localY - (-hh - 22)) <= handleRadius + 4) {
+    return 'rotate';
+  }
+
+  // 4 Corners
+  if (Math.hypot(localX - (-hw), localY - (-hh)) <= handleRadius) return 'nw';
+  if (Math.hypot(localX - hw, localY - (-hh)) <= handleRadius) return 'ne';
+  if (Math.hypot(localX - hw, localY - hh) <= handleRadius) return 'se';
+  if (Math.hypot(localX - (-hw), localY - hh) <= handleRadius) return 'sw';
+
+  // 4 Edges
+  if (Math.abs(localY - (-hh)) <= handleRadius && Math.abs(localX) < hw) return 'n';
+  if (Math.abs(localY - hh) <= handleRadius && Math.abs(localX) < hw) return 's';
+  if (Math.abs(localX - (-hw)) <= handleRadius && Math.abs(localY) < hh) return 'w';
+  if (Math.abs(localX - hw) <= handleRadius && Math.abs(localY) < hh) return 'e';
+
+  // Inside body
+  if (localX >= -hw && localX <= hw && localY >= -hh && localY <= hh) {
+    return 'body';
+  }
+
+  return null;
 }

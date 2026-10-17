@@ -8,8 +8,11 @@
     mergeLayerDown,
     renameLayer,
     reorderLayers,
-    flattenAllLayers
+    flattenAllLayers,
+    addReferenceImageLayer,
+    openDigitizerForLayer
   } from '../stores/editorStore';
+  import { SAMPLE_IMAGES } from '../data/sampleImages';
   import {
     Eye,
     EyeOff,
@@ -24,7 +27,11 @@
     ArrowDownToLine,
     Edit2,
     GripVertical,
-    FoldVertical
+    FoldVertical,
+    Image as ImageIcon,
+    Sparkles,
+    Upload,
+    ChevronDown
   } from 'lucide-svelte';
 
   // Inline Rename state
@@ -34,6 +41,10 @@
   // Drag and Drop state
   let draggedLayerId: string | null = null;
   let dragOverLayerId: string | null = null;
+
+  // Import Image Popover state
+  let showImportMenu = false;
+  let fileInputEl: HTMLInputElement;
 
   function addNewLayer() {
     const nextNum = $layers.length + 1;
@@ -99,6 +110,34 @@
     }
   }
 
+  function handleFileSelect(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const src = event.target?.result as string;
+      const img = new Image();
+      img.onload = () => {
+        addReferenceImageLayer(src, file.name.replace(/\.[^/.]+$/, ''), img.naturalWidth, img.naturalHeight);
+      };
+      img.src = src;
+    };
+    reader.readAsDataURL(file);
+    input.value = '';
+    showImportMenu = false;
+  }
+
+  function handleLoadSample(sampleUrl: string, sampleTitle: string) {
+    const img = new Image();
+    img.onload = () => {
+      addReferenceImageLayer(sampleUrl, sampleTitle, img.naturalWidth, img.naturalHeight);
+    };
+    img.src = sampleUrl;
+    showImportMenu = false;
+  }
+
   // Drag-and-drop handlers
   function handleDragStart(e: DragEvent, id: string) {
     draggedLayerId = id;
@@ -150,6 +189,15 @@
 </script>
 
 <div class="flex flex-col h-full bg-[#1e1e24] text-gray-200 select-none">
+  <!-- Hidden file input for uploading reference images -->
+  <input
+    type="file"
+    accept="image/png,image/jpeg,image/webp,image/svg+xml"
+    bind:this={fileInputEl}
+    on:change={handleFileSelect}
+    class="hidden"
+  />
+
   <!-- Header & Toolbar -->
   <div class="p-2 border-b border-[#2e2e38] flex items-center justify-between bg-[#23232c] flex-shrink-0">
     <div class="flex items-center space-x-1.5">
@@ -191,9 +239,62 @@
 
       <div class="w-px h-3.5 bg-gray-700 mx-0.5"></div>
 
+      <!-- Import Image Button with Dropdown -->
+      <div class="relative">
+        <button
+          type="button"
+          class="text-xs bg-cyan-700/80 hover:bg-cyan-600 text-white px-1.5 py-0.5 rounded flex items-center space-x-1 font-medium transition-colors shadow-sm cursor-pointer"
+          on:click={() => { showImportMenu = !showImportMenu; }}
+          title="Import Reference Image Layer"
+        >
+          <ImageIcon size={12} />
+          <span>+ Image</span>
+          <ChevronDown size={10} class="text-cyan-200" />
+        </button>
+
+        {#if showImportMenu}
+          <div
+            class="absolute right-0 top-full mt-1.5 w-56 bg-[#23232e] border border-cyan-500/40 rounded-xl shadow-2xl py-1.5 text-xs text-gray-200 z-50 animate-fadeIn"
+            role="menu"
+            tabindex="-1"
+          >
+            <button
+              type="button"
+              class="w-full px-3 py-1.5 flex items-center space-x-2 hover:bg-cyan-600 hover:text-white transition-colors cursor-pointer text-left"
+              on:click={() => { showImportMenu = false; fileInputEl?.click(); }}
+            >
+              <Upload size={13} class="text-cyan-400" />
+              <div>
+                <div class="font-medium">Upload Image File...</div>
+                <div class="text-[10px] text-gray-400">PNG, JPG, WebP, SVG</div>
+              </div>
+            </button>
+
+            <div class="my-1 border-t border-gray-700"></div>
+            <div class="px-3 py-1 text-[10px] uppercase font-bold text-gray-400">Sample Test Photos</div>
+
+            {#each SAMPLE_IMAGES as sample}
+              <button
+                type="button"
+                class="w-full px-3 py-1.5 flex items-center space-x-2 hover:bg-cyan-600 hover:text-white transition-colors cursor-pointer text-left"
+                on:click={() => handleLoadSample(sample.url, sample.title)}
+              >
+                <span class="text-base flex-shrink-0">
+                  {sample.id.includes('cat') ? '🕶️' : '☕'}
+                </span>
+                <div class="truncate">
+                  <div class="font-medium truncate">{sample.title}</div>
+                  <div class="text-[10px] text-gray-400 truncate">{sample.description}</div>
+                </div>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+
       <button
         type="button"
-        class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-0.5 rounded flex items-center space-x-1 font-medium transition-colors shadow-sm"
+        class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-0.5 rounded flex items-center space-x-1 font-medium transition-colors shadow-sm cursor-pointer"
         on:click={addNewLayer}
         title="Create New Stitch Layer"
       >
@@ -233,7 +334,7 @@
       <div
         class="flex items-center justify-between p-1.5 rounded-lg border transition-all cursor-pointer group relative
         {$activeLayerId === layer.id
-          ? 'bg-indigo-950/60 border-indigo-500/80 shadow-sm'
+          ? (layer.type === 'image' ? 'bg-cyan-950/60 border-cyan-500/80 shadow-sm' : 'bg-indigo-950/60 border-indigo-500/80 shadow-sm')
           : 'bg-[#25252e] border-transparent hover:bg-[#2b2b36]'}
         {dragOverLayerId === layer.id ? 'ring-2 ring-indigo-400 bg-indigo-900/40' : ''}"
         on:click={() => activeLayerId.set(layer.id)}
@@ -260,7 +361,7 @@
             title={layer.visible ? 'Hide Layer' : 'Show Layer'}
           >
             {#if layer.visible}
-              <Eye size={14} class="text-indigo-400" />
+              <Eye size={14} class={layer.type === 'image' ? 'text-cyan-400' : 'text-indigo-400'} />
             {:else}
               <EyeOff size={14} class="text-gray-600" />
             {/if}
@@ -279,6 +380,11 @@
             {/if}
           </button>
 
+          <!-- Layer Icon Indicator -->
+          {#if layer.type === 'image'}
+            <ImageIcon size={13} class="text-cyan-400 flex-shrink-0" />
+          {/if}
+
           <!-- Layer Name & Inline Renaming -->
           {#if editingLayerId === layer.id}
             <!-- svelte-ignore a11y-autofocus -->
@@ -293,7 +399,7 @@
             />
           {:else}
             <span
-              class="text-xs font-medium truncate flex-1 cursor-text {layer.visible ? 'text-gray-200' : 'text-gray-500'}"
+              class="text-xs font-medium truncate flex-1 cursor-text {layer.visible ? (layer.type === 'image' ? 'text-cyan-200' : 'text-gray-200') : 'text-gray-500'}"
               on:dblclick|stopPropagation={() => startRename(layer)}
               title="Double-click to rename"
               role="button"
@@ -314,6 +420,19 @@
         </div>
 
         <div class="flex items-center space-x-1 flex-shrink-0">
+          <!-- Digitize button on Image Layers -->
+          {#if layer.type === 'image'}
+            <button
+              type="button"
+              class="px-1.5 py-0.5 rounded bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-[10px] font-semibold flex items-center space-x-1 shadow-sm transition-all cursor-pointer mr-0.5"
+              on:click|stopPropagation={() => openDigitizerForLayer(layer.id)}
+              title="Digitize reference image into DMC stitches"
+            >
+              <Sparkles size={10} />
+              <span>Digitize</span>
+            </button>
+          {/if}
+
           <!-- Re-order buttons (Up/Down in visual list) -->
           <div class="flex flex-col space-y-0.5 mr-1 opacity-70 group-hover:opacity-100 transition-opacity">
             <button
@@ -336,10 +455,16 @@
             </button>
           </div>
 
-          <!-- Stitch count badge -->
-          <span class="text-[10px] font-mono text-gray-400 bg-[#1a1a22] px-1.5 py-0.5 rounded border border-[#30303c]">
-            {Object.keys(layer.stitches).length}
-          </span>
+          <!-- Stitch count or Image dimension badge -->
+          {#if layer.type === 'image'}
+            <span class="text-[10px] font-mono text-cyan-300 bg-cyan-950/80 px-1.5 py-0.5 rounded border border-cyan-800/60" title="Image dimensions in grid cells">
+              {Math.round(layer.image?.width || 0)}×{Math.round(layer.image?.height || 0)}
+            </span>
+          {:else}
+            <span class="text-[10px] font-mono text-gray-400 bg-[#1a1a22] px-1.5 py-0.5 rounded border border-[#30303c]" title="Stitch count">
+              {Object.keys(layer.stitches).length}
+            </span>
+          {/if}
 
           <!-- Delete layer (if more than 1) -->
           {#if $layers.length > 1}

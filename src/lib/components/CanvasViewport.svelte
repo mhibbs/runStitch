@@ -37,9 +37,17 @@
     setFabricColor,
     FABRIC_COLOR_PRESETS,
     measurementUnit,
-    formatDimensions
+    formatDimensions,
+    activeLayer,
+    activeLayerId,
+    updateImageLayer,
+    rotateImageLayer,
+    fitImageLayerToCanvas,
+    openDigitizerForLayer,
+    setLayerOpacity,
+    toggleLayerVisibility
   } from '../stores/editorStore';
-  import { renderBackground, renderStitches, renderOverlay } from '../engine/renderer';
+  import { renderBackground, renderStitches, renderOverlay, getImageHandleAt, type ImageHandleType } from '../engine/renderer';
   import {
     getLineCells,
     getRectangleCells,
@@ -52,9 +60,12 @@
     ChevronUp,
     Check,
     Eye,
+    EyeOff,
     Grid,
     ZoomIn,
-    ZoomOut
+    ZoomOut,
+    Sparkles,
+    RotateCw
   } from 'lucide-svelte';
 
   let containerEl: HTMLDivElement;
@@ -91,6 +102,20 @@
   let shapeCurrent = { x: 0, y: 0 };
   let shapePreviewCells: Point[] | null = null;
 
+  // Active Image Layer transform tracking
+  let isTransformingImage = false;
+  let activeImageHandle: ImageHandleType | null = null;
+  let dynamicCursor = '';
+  let imageTransformStart = {
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+    rotation: 0,
+    pointerScreenX: 0,
+    pointerScreenY: 0
+  };
+
   // Marching ants animation loop
   let dashOffset = 0;
   let animFrameId: number | null = null;
@@ -98,7 +123,7 @@
   function startMarchingAnts() {
     if (animFrameId !== null) return;
     function loop() {
-      if ($selection || $floatingSelection || ($activeTool === 'stamp' && $activeStamp)) {
+      if ($selection || $floatingSelection || ($activeTool === 'stamp' && $activeStamp) || ($activeLayer?.type === 'image')) {
         dashOffset = (dashOffset + 0.35) % 10;
         redrawOverlay();
         animFrameId = requestAnimationFrame(loop);
@@ -110,7 +135,7 @@
     animFrameId = requestAnimationFrame(loop);
   }
 
-  $: if ($selection || $floatingSelection || ($activeTool === 'stamp' && $activeStamp)) {
+  $: if ($selection || $floatingSelection || ($activeTool === 'stamp' && $activeStamp) || ($activeLayer?.type === 'image')) {
     startMarchingAnts();
   }
 
@@ -145,13 +170,15 @@
   function redrawAll() {
     if (!bgCtx || !stitchCtx || !overlayCtx) return;
     renderBackground(bgCtx, width, height, $viewport, $grid, $viewMode, $fabricColor);
-    renderStitches(stitchCtx, width, height, $viewport, $grid, $layers, $palette, $viewMode, $showGrid);
+    renderStitches(stitchCtx, width, height, $viewport, $grid, $layers, $palette, $viewMode, $showGrid, redrawStitches);
     redrawOverlay();
   }
 
   function redrawStitches() {
     if (!stitchCtx) return;
-    renderStitches(stitchCtx, width, height, $viewport, $grid, $layers, $palette, $viewMode, $showGrid);
+    renderStitches(stitchCtx, width, height, $viewport, $grid, $layers, $palette, $viewMode, $showGrid, () => {
+      redrawStitches();
+    });
   }
 
   function redrawOverlay() {
@@ -170,7 +197,8 @@
       $activeTool,
       dashOffset,
       shapePreviewCells,
-      $activeStamp
+      $activeStamp,
+      $activeLayer
     );
   }
 
@@ -200,7 +228,7 @@
     redrawStitches();
   }
 
-  $: if (overlayCtx && ($viewport || $grid || $hoverCoord || $activeColor || $selection || $floatingSelection || $activeTool || $activeStamp || $shapeFillMode)) {
+  $: if (overlayCtx && ($viewport || $grid || $hoverCoord || $activeColor || $selection || $floatingSelection || $activeTool || $activeStamp || $shapeFillMode || $activeLayer)) {
     redrawOverlay();
   }
 
@@ -238,6 +266,28 @@
 
     isPointerDown = true;
     lastPointerPos = { x: e.clientX, y: e.clientY };
+
+    // Active Image Layer Handle Hit-Testing & Interaction
+    if ($activeLayer && $activeLayer.type === 'image' && $activeLayer.image && $activeLayer.visible) {
+      const rect = containerEl.getBoundingClientRect();
+      const clientX = e.clientX - rect.left;
+      const clientY = e.clientY - rect.top;
+      const handle = getImageHandleAt(clientX, clientY, $activeLayer.image, $viewport);
+      if (handle) {
+        isTransformingImage = true;
+        activeImageHandle = handle;
+        imageTransformStart = {
+          x: $activeLayer.image.x,
+          y: $activeLayer.image.y,
+          width: $activeLayer.image.width,
+          height: $activeLayer.image.height,
+          rotation: $activeLayer.image.rotation || 0,
+          pointerScreenX: e.clientX,
+          pointerScreenY: e.clientY
+        };
+        return;
+      }
+    }
 
     const { x, y } = screenToGrid(e.clientX, e.clientY);
 
@@ -331,6 +381,124 @@
       return;
     }
 
+    // Active Image Layer transformation
+    if (isTransformingImage && $activeLayer && $activeLayer.type === 'image' && $activeLayer.image && activeImageHandle) {
+      const dxScreen = e.clientX - imageTransformStart.pointerScreenX;
+      const dyScreen = e.clientY - imageTransformStart.pointerScreenY;
+      const rect = containerEl.getBoundingClientRect();
+
+      if (activeImageHandle === 'body') {
+        const dGridX = Math.round(dxScreen / $viewport.zoom);
+        const dGridY = Math.round(dyScreen / $viewport.zoom);
+        updateImageLayer($activeLayer.id, {
+          x: imageTransformStart.x + dGridX,
+          y: imageTransformStart.y + dGridY
+        });
+      } else if (activeImageHandle === 'rotate') {
+        const cx = $viewport.panX + (imageTransformStart.x + imageTransformStart.width / 2) * $viewport.zoom;
+        const cy = $viewport.panY + (imageTransformStart.y + imageTransformStart.height / 2) * $viewport.zoom;
+        const currentAngle = Math.atan2((e.clientY - rect.top) - cy, (e.clientX - rect.left) - cx) * (180 / Math.PI);
+        const startAngle = Math.atan2((imageTransformStart.pointerScreenY - rect.top) - cy, (imageTransformStart.pointerScreenX - rect.left) - cx) * (180 / Math.PI);
+        let newRot = Math.round(imageTransformStart.rotation + (currentAngle - startAngle));
+        if (e.shiftKey) {
+          newRot = Math.round(newRot / 15) * 15;
+        }
+        updateImageLayer($activeLayer.id, {
+          rotation: ((newRot % 360) + 360) % 360
+        });
+      } else {
+        // Scaling handles: 'nw' | 'ne' | 'se' | 'sw' | 'n' | 'e' | 's' | 'w'
+        const rad = ((imageTransformStart.rotation || 0) * Math.PI) / 180;
+        const dStitchX = dxScreen / $viewport.zoom;
+        const dStitchY = dyScreen / $viewport.zoom;
+        const cos = Math.cos(-rad);
+        const sin = Math.sin(-rad);
+        const localDx = dStitchX * cos - dStitchY * sin;
+        const localDy = dStitchX * sin + dStitchY * cos;
+
+        let newW = imageTransformStart.width;
+        let newH = imageTransformStart.height;
+        let newX = imageTransformStart.x;
+        let newY = imageTransformStart.y;
+
+        const isCorner = ['nw', 'ne', 'se', 'sw'].includes(activeImageHandle);
+        const preserveAspect = e.shiftKey || isCorner;
+        const aspect = imageTransformStart.width / Math.max(1, imageTransformStart.height);
+
+        if (activeImageHandle === 'se') {
+          newW = Math.max(2, Math.round(imageTransformStart.width + localDx));
+          if (preserveAspect) {
+            newH = Math.max(2, Math.round(newW / aspect));
+          } else {
+            newH = Math.max(2, Math.round(imageTransformStart.height + localDy));
+          }
+        } else if (activeImageHandle === 'e') {
+          newW = Math.max(2, Math.round(imageTransformStart.width + localDx));
+        } else if (activeImageHandle === 's') {
+          newH = Math.max(2, Math.round(imageTransformStart.height + localDy));
+        } else if (activeImageHandle === 'sw') {
+          newW = Math.max(2, Math.round(imageTransformStart.width - localDx));
+          if (preserveAspect) {
+            newH = Math.max(2, Math.round(newW / aspect));
+          } else {
+            newH = Math.max(2, Math.round(imageTransformStart.height + localDy));
+          }
+          newX = imageTransformStart.x + (imageTransformStart.width - newW);
+        } else if (activeImageHandle === 'w') {
+          newW = Math.max(2, Math.round(imageTransformStart.width - localDx));
+          newX = imageTransformStart.x + (imageTransformStart.width - newW);
+        } else if (activeImageHandle === 'ne') {
+          newW = Math.max(2, Math.round(imageTransformStart.width + localDx));
+          if (preserveAspect) {
+            newH = Math.max(2, Math.round(newW / aspect));
+          } else {
+            newH = Math.max(2, Math.round(imageTransformStart.height - localDy));
+          }
+          newY = imageTransformStart.y + (imageTransformStart.height - newH);
+        } else if (activeImageHandle === 'n') {
+          newH = Math.max(2, Math.round(imageTransformStart.height - localDy));
+          newY = imageTransformStart.y + (imageTransformStart.height - newH);
+        } else if (activeImageHandle === 'nw') {
+          newW = Math.max(2, Math.round(imageTransformStart.width - localDx));
+          if (preserveAspect) {
+            newH = Math.max(2, Math.round(newW / aspect));
+          } else {
+            newH = Math.max(2, Math.round(imageTransformStart.height - localDy));
+          }
+          newX = imageTransformStart.x + (imageTransformStart.width - newW);
+          newY = imageTransformStart.y + (imageTransformStart.height - newH);
+        }
+
+        updateImageLayer($activeLayer.id, {
+          x: newX,
+          y: newY,
+          width: newW,
+          height: newH
+        });
+      }
+      return;
+    }
+
+    // Dynamic cursor hover feedback for image handles
+    if (!isTransformingImage && $activeLayer && $activeLayer.type === 'image' && $activeLayer.image && $activeLayer.visible) {
+      const rect = containerEl.getBoundingClientRect();
+      const clientX = e.clientX - rect.left;
+      const clientY = e.clientY - rect.top;
+      const handle = getImageHandleAt(clientX, clientY, $activeLayer.image, $viewport);
+      if (handle) {
+        if (handle === 'nw' || handle === 'se') dynamicCursor = 'nwse-resize';
+        else if (handle === 'ne' || handle === 'sw') dynamicCursor = 'nesw-resize';
+        else if (handle === 'n' || handle === 's') dynamicCursor = 'ns-resize';
+        else if (handle === 'e' || handle === 'w') dynamicCursor = 'ew-resize';
+        else if (handle === 'rotate') dynamicCursor = 'grab';
+        else if (handle === 'body') dynamicCursor = 'move';
+      } else {
+        dynamicCursor = '';
+      }
+    } else if (!isTransformingImage && dynamicCursor !== '') {
+      dynamicCursor = '';
+    }
+
     // Update hover coordinates
     const { x, y } = screenToGrid(e.clientX, e.clientY);
     if (x >= 0 && x < $grid.width && y >= 0 && y < $grid.height) {
@@ -388,6 +556,11 @@
     activePointers.delete(e.pointerId);
 
     if (activePointers.size === 0) {
+      if (isTransformingImage) {
+        isTransformingImage = false;
+        activeImageHandle = null;
+      }
+
       if (isDrawingShape && shapePreviewCells && shapePreviewCells.length > 0) {
         const toolLabel = $activeTool === 'line' ? 'Draw Line' : ($activeTool === 'rectangle' ? 'Draw Rectangle' : 'Draw Ellipse');
         beginStroke(toolLabel);
@@ -660,6 +833,7 @@
   class="relative w-full h-full overflow-hidden bg-[#121216] cursor-crosshair touch-none select-none"
   class:cursor-grab={isSpacePressed || $activeTool === 'pan'}
   class:cursor-grabbing={isPanning}
+  style:cursor={dynamicCursor || undefined}
   on:pointerdown={handlePointerDown}
   on:pointermove={handlePointerMove}
   on:pointerup={handlePointerUp}
@@ -675,6 +849,82 @@
 
   <!-- Interactive Overlays & Hover Highlight -->
   <canvas bind:this={overlayCanvas} class="absolute inset-0 pointer-events-none"></canvas>
+
+  <!-- Floating Image Layer Controls Pill -->
+  {#if $activeLayer && $activeLayer.type === 'image' && $activeLayer.image}
+    <div
+      class="absolute top-4 left-1/2 -translate-x-1/2 bg-[#1e1e24]/95 backdrop-blur-md border border-cyan-500/50 shadow-2xl px-3 py-1.5 rounded-xl flex items-center space-x-2.5 text-xs text-gray-200 z-30 select-none pointer-events-auto"
+      role="toolbar"
+      aria-label="Image Layer Controls"
+      tabindex="-1"
+      on:pointerdown|stopPropagation
+      on:pointerup|stopPropagation
+      on:pointermove|stopPropagation
+      on:click|stopPropagation
+      on:keydown|stopPropagation
+    >
+      <div class="flex items-center space-x-1.5 pr-2 border-r border-gray-700">
+        <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+        <span class="font-medium text-cyan-300">{$activeLayer.name}</span>
+      </div>
+
+      <button
+        type="button"
+        class="px-2.5 py-1 rounded bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-semibold flex items-center space-x-1.5 shadow-md hover:shadow-cyan-500/20 transition-all cursor-pointer"
+        on:click={() => openDigitizerForLayer($activeLayer.id)}
+        title="Digitize reference image into DMC stitches"
+      >
+        <Sparkles size={13} />
+        <span>Digitize to Stitches...</span>
+      </button>
+
+      <button
+        type="button"
+        class="p-1.5 rounded hover:bg-[#2b2b36] text-gray-300 hover:text-white transition-colors cursor-pointer"
+        on:click={() => rotateImageLayer($activeLayer.id, true)}
+        title="Rotate 90° Clockwise"
+      >
+        <RotateCw size={13} />
+      </button>
+
+      <button
+        type="button"
+        class="px-2 py-1 rounded hover:bg-[#2b2b36] text-gray-300 hover:text-white transition-colors cursor-pointer text-[11px]"
+        on:click={() => fitImageLayerToCanvas($activeLayer.id)}
+        title="Fit Image to Canvas"
+      >
+        Fit Canvas
+      </button>
+
+      <div class="flex items-center space-x-1.5 pl-2 border-l border-gray-700">
+        <span class="text-[10px] text-gray-400">Opacity:</span>
+        <input
+          type="range"
+          min="0.05"
+          max="1"
+          step="0.05"
+          value={$activeLayer.opacity}
+          on:input={(e) => setLayerOpacity($activeLayer.id, parseFloat(e.currentTarget.value))}
+          class="w-16 accent-cyan-500 cursor-pointer h-1.5 bg-gray-700 rounded-lg"
+          title="Layer Opacity ({Math.round($activeLayer.opacity * 100)}%)"
+        />
+        <span class="font-mono text-[10px] text-gray-400 w-7 text-right">{Math.round($activeLayer.opacity * 100)}%</span>
+      </div>
+
+      <button
+        type="button"
+        class="p-1 rounded hover:bg-gray-700/50 text-gray-400 hover:text-gray-200 transition-colors ml-1 cursor-pointer"
+        on:click={() => toggleLayerVisibility($activeLayer.id)}
+        title={$activeLayer.visible ? "Hide Layer" : "Show Layer"}
+      >
+        {#if $activeLayer.visible}
+          <Eye size={13} />
+        {:else}
+          <EyeOff size={13} />
+        {/if}
+      </button>
+    </div>
+  {/if}
 
   <!-- HUD Coordinate & Live Details Bar (Bottom Left) -->
   <div

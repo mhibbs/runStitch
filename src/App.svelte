@@ -12,6 +12,7 @@
   import MotifLibraryModal from './lib/components/MotifLibraryModal.svelte';
   import BorderMakerModal from './lib/components/BorderMakerModal.svelte';
   import SaveProjectModal from './lib/components/SaveProjectModal.svelte';
+  import DigitizerModal from './lib/components/DigitizerModal.svelte';
   import {
     activeTool,
     undo,
@@ -36,7 +37,8 @@
     floatingSelection,
     rotate90,
     flipHorizontal,
-    flipVertical
+    flipVertical,
+    addReferenceImageLayer
   } from './lib/stores/editorStore';
   import { SwatchBook, Layers as LayersIcon, ChevronDown, ChevronRight, ChevronLeft } from 'lucide-svelte';
 
@@ -231,12 +233,41 @@
     }
   }
 
+  function handleWindowDragOver(e: DragEvent) {
+    if (e.dataTransfer?.types.includes('Files')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  }
+
+  function handleWindowDrop(e: DragEvent) {
+    if (!e.dataTransfer?.files || e.dataTransfer.files.length === 0) return;
+    const file = e.dataTransfer.files[0];
+    if (file.type.startsWith('image/')) {
+      e.preventDefault();
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const src = event.target?.result as string;
+        const img = new Image();
+        img.onload = () => {
+          addReferenceImageLayer(src, file.name.replace(/\.[^/.]+$/, ''), img.naturalWidth, img.naturalHeight);
+        };
+        img.src = src;
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
   onMount(() => {
     window.addEventListener('keydown', handleGlobalKeyDown);
+    window.addEventListener('dragover', handleWindowDragOver);
+    window.addEventListener('drop', handleWindowDrop);
   });
 
   onDestroy(() => {
     window.removeEventListener('keydown', handleGlobalKeyDown);
+    window.removeEventListener('dragover', handleWindowDragOver);
+    window.removeEventListener('drop', handleWindowDrop);
   });
 </script>
 
@@ -354,6 +385,7 @@
   <MotifLibraryModal />
   <BorderMakerModal />
   <SaveProjectModal />
+  <DigitizerModal />
 </div>
 
 

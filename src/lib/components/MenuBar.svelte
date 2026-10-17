@@ -38,8 +38,12 @@
     FABRIC_COLOR_PRESETS,
     measurementUnit,
     isSaveModalOpen,
-    projectName
+    projectName,
+    activeLayer,
+    addReferenceImageLayer,
+    openDigitizerForLayer
   } from '../stores/editorStore';
+  import { SAMPLE_IMAGES } from '../data/sampleImages';
   import {
     FileText,
     FolderOpen,
@@ -65,14 +69,42 @@
     Slash,
     Square,
     Circle,
-    Sparkles
+    Sparkles,
+    Image as ImageIcon
   } from 'lucide-svelte';
 
   let openMenu: 'file' | 'edit' | 'design' | 'view' | 'help' | null = null;
   let fileInputEl: HTMLInputElement;
+  let imageInputEl: HTMLInputElement;
 
   function toggleMenu(menu: 'file' | 'edit' | 'design' | 'view' | 'help') {
     openMenu = openMenu === menu ? null : menu;
+  }
+
+  function handleImageFileSelect(e: Event) {
+    closeMenu();
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const src = event.target?.result as string;
+      const img = new Image();
+      img.onload = () => {
+        addReferenceImageLayer(src, file.name.replace(/\.[^/.]+$/, ''), img.naturalWidth, img.naturalHeight);
+      };
+      img.src = src;
+    };
+    reader.readAsDataURL(file);
+    (e.target as HTMLInputElement).value = '';
+  }
+
+  function handleLoadSample(sampleUrl: string, sampleTitle: string) {
+    closeMenu();
+    const img = new Image();
+    img.onload = () => {
+      addReferenceImageLayer(sampleUrl, sampleTitle, img.naturalWidth, img.naturalHeight);
+    };
+    img.src = sampleUrl;
   }
 
   function closeMenu() {
@@ -139,6 +171,14 @@
   class="hidden"
 />
 
+<input
+  bind:this={imageInputEl}
+  type="file"
+  accept="image/png,image/jpeg,image/webp,image/svg+xml"
+  on:change={handleImageFileSelect}
+  class="hidden"
+/>
+
 <div class="app-menubar flex items-center space-x-0.5 text-xs text-gray-300 relative select-none">
   <!-- File Menu -->
   <div class="relative">
@@ -149,7 +189,7 @@
       File
     </button>
     {#if openMenu === 'file'}
-      <div class="absolute left-0 top-full mt-1 w-48 bg-[#1f1f28] border border-gray-700 rounded-lg shadow-2xl py-1 z-50 text-xs text-gray-200">
+      <div class="absolute left-0 top-full mt-1 w-56 bg-[#1f1f28] border border-gray-700 rounded-lg shadow-2xl py-1 z-50 text-xs text-gray-200">
         <button
           class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-indigo-600 hover:text-white transition-colors"
           on:click={() => { closeMenu(); isNewProjectModalOpen.set(true); }}
@@ -182,6 +222,30 @@
           </div>
           <span class="text-[10px] text-gray-400">Cmd+S</span>
         </button>
+
+        <div class="my-1 border-t border-gray-700"></div>
+
+        <button
+          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-cyan-600 hover:text-white transition-colors"
+          on:click={() => { closeMenu(); imageInputEl.click(); }}
+        >
+          <div class="flex items-center space-x-2">
+            <ImageIcon size={14} class="text-cyan-400" />
+            <span>Import Image Layer...</span>
+          </div>
+        </button>
+
+        {#each SAMPLE_IMAGES as sample}
+          <button
+            class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-cyan-600 hover:text-white transition-colors text-left"
+            on:click={() => handleLoadSample(sample.url, sample.title)}
+          >
+            <div class="flex items-center space-x-2 truncate">
+              <span class="text-xs">{sample.id.includes('cat') ? '🕶️' : '☕'}</span>
+              <span class="truncate">Try Sample: {sample.title}</span>
+            </div>
+          </button>
+        {/each}
 
         <div class="my-1 border-t border-gray-700"></div>
 
@@ -364,6 +428,17 @@
           <div class="flex items-center space-x-2">
             <Frame size={14} class="text-amber-400" />
             <span>Border Repeater...</span>
+          </div>
+        </button>
+
+        <button
+          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-cyan-600 hover:text-white transition-colors disabled:opacity-40"
+          on:click={() => { closeMenu(); if ($activeLayer?.type === 'image') openDigitizerForLayer($activeLayer.id); }}
+          disabled={!$activeLayer || $activeLayer.type !== 'image'}
+        >
+          <div class="flex items-center space-x-2">
+            <Sparkles size={14} class="text-cyan-400" />
+            <span>Digitize Image to Stitches...</span>
           </div>
         </button>
 

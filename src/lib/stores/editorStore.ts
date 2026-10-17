@@ -16,11 +16,14 @@ import type {
   MotifStamp,
   BorderConfig,
   FabricColorPreset,
-  CompositeBorder
+  CompositeBorder,
+  ReferenceImage,
+  DigitizerOptions
 } from '../types';
 import { createDefaultPalette, CHART_SYMBOLS, getHighContrastTextColor, DMC_CATALOG, type DMCEntry } from '../data/dmcPalette';
 import { saveCustomStamp } from '../data/motifLibrary';
 import type { PlacedStitch } from '../engine/borderGenerator';
+import { hexToRgb, type DigitizerResult } from '../engine/digitizer';
 
 // Initial state
 const defaultPalette = createDefaultPalette();
@@ -1040,6 +1043,282 @@ export function flattenAllLayers() {
 
   layers.set([baseLayer]);
   activeLayerId.set(baseLayerId);
+}
+
+// ==========================================
+// Reference Image & Digitizer Operations (Milestone 5)
+// ==========================================
+
+export const isDigitizerModalOpen = writable<boolean>(false);
+export const digitizerSourceLayerId = writable<string | null>(null);
+
+export function setLayerOpacity(layerId: string, opacity: number) {
+  layers.update(ls => ls.map(l => l.id === layerId ? { ...l, opacity: Math.max(0, Math.min(1, opacity)) } : l));
+}
+
+export function toggleLayerVisibility(layerId: string) {
+  layers.update(ls => ls.map(l => l.id === layerId ? { ...l, visible: !l.visible } : l));
+}
+
+export async function addReferenceImageLayer(
+  src: string,
+  name: string = 'Reference Image',
+  naturalWidth?: number,
+  naturalHeight?: number
+): Promise<string> {
+  const currentGrid = get(grid);
+
+  let nw = naturalWidth || 0;
+  let nh = naturalHeight || 0;
+
+  if (!nw || !nh) {
+    await new Promise<void>((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        nw = img.naturalWidth;
+        nh = img.naturalHeight;
+        resolve();
+      };
+      img.onerror = () => resolve();
+      img.src = src;
+    });
+  }
+
+  // Calculate initial fitting size (around 70-80% of canvas grid dimensions)
+  const maxW = Math.max(10, Math.floor(currentGrid.width * 0.75));
+  const maxH = Math.max(10, Math.floor(currentGrid.height * 0.75));
+
+  let w = maxW;
+  let h = maxH;
+  if (nw > 0 && nh > 0) {
+    const scale = Math.min(maxW / nw, maxH / nh);
+    w = Math.max(4, Math.round(nw * scale));
+    h = Math.max(4, Math.round(nh * scale));
+  }
+
+  const x = Math.max(0, Math.floor((currentGrid.width - w) / 2));
+  const y = Math.max(0, Math.floor((currentGrid.height - h) / 2));
+
+  const newId = `layer-img-${Date.now()}`;
+  const newLayer: Layer = {
+    id: newId,
+    name,
+    type: 'image',
+    visible: true,
+    locked: false,
+    opacity: 0.70,
+    stitches: {},
+    image: {
+      src,
+      naturalWidth: nw || w,
+      naturalHeight: nh || h,
+      x,
+      y,
+      width: w,
+      height: h,
+      rotation: 0
+    }
+  };
+
+  const currentLayers = get(layers);
+  layers.set([...currentLayers, newLayer]);
+  activeLayerId.set(newId);
+
+  undoStack.update(u => [
+    ...u,
+    {
+      description: `Import ${name}`,
+      layerId: newId,
+      before: {},
+      after: {},
+      layersSnapshot: currentLayers
+    }
+  ]);
+  redoStack.set([]);
+
+  return newId;
+}
+
+export function updateImageLayer(layerId: string, updates: Partial<ReferenceImage>) {
+  layers.update(ls => ls.map(l => {
+    if (l.id === layerId && l.image) {
+      return {
+        ...l,
+        image: { ...l.image, ...updates }
+      };
+    }
+    return l;
+  }));
+}
+
+export function rotateImageLayer(layerId: string, clockwise = true) {
+  layers.update(ls => ls.map(l => {
+    if (l.id === layerId && l.image) {
+      const currentRot = l.image.rotation || 0;
+      const nextRot = (currentRot + (clockwise ? 90 : 270)) % 360;
+      return {
+        ...l,
+        image: {
+          ...l.image,
+          rotation: nextRot
+        }
+      };
+    }
+    return l;
+  }));
+}
+
+export function fitImageLayerToCanvas(layerId: string) {
+  const currentGrid = get(grid);
+  layers.update(ls => ls.map(l => {
+    if (l.id === layerId && l.image) {
+      const nw = l.image.naturalWidth;
+      const nh = l.image.naturalHeight;
+      const scale = Math.min(currentGrid.width / nw, currentGrid.height / nh);
+      const w = Math.max(4, Math.round(nw * scale));
+      const h = Math.max(4, Math.round(nh * scale));
+      const x = Math.max(0, Math.floor((currentGrid.width - w) / 2));
+      const y = Math.max(0, Math.floor((currentGrid.height - h) / 2));
+      return {
+        ...l,
+        image: {
+          ...l.image,
+          x,
+          y,
+          width: w,
+          height: h
+        }
+      };
+    }
+    return l;
+  }));
+}
+
+export function openDigitizerForLayer(layerId: string) {
+  digitizerSourceLayerId.set(layerId);
+  isDigitizerModalOpen.set(true);
+}
+
+export function closeDigitizerModal() {
+  isDigitizerModalOpen.set(false);
+  digitizerSourceLayerId.set(null);
+}
+
+export function applyDigitizedResult(
+  sourceLayerId: string,
+  result: DigitizerResult,
+  options: DigitizerOptions
+) {
+  const currentLayers = get(layers);
+  const srcLayer = currentLayers.find(l => l.id === sourceLayerId);
+  const currentPalette = get(palette);
+
+  // 1. Ensure all DMC colors used in result exist in palette
+  const updatedPalette = [...currentPalette];
+  const dmcToColorId = new Map<string, number>();
+
+  for (const c of updatedPalette) {
+    dmcToColorId.set(c.dmc, c.id);
+  }
+
+  const usedSymbols = new Set(updatedPalette.map(c => c.symbol));
+
+  for (const dmcItem of result.palette) {
+    if (!dmcToColorId.has(dmcItem.code)) {
+      const nextId = Math.max(0, ...updatedPalette.map(c => c.id)) + 1;
+      const nextSymbol = CHART_SYMBOLS.find(s => !usedSymbols.has(s)) || '#';
+      usedSymbols.add(nextSymbol);
+
+      const rgb = hexToRgb(dmcItem.hex);
+      const lum = (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b) / 255;
+
+      const newColor: PaletteColor = {
+        id: nextId,
+        dmc: dmcItem.code,
+        name: dmcItem.name,
+        hex: dmcItem.hex,
+        symbol: nextSymbol,
+        symbolColor: lum > 0.5 ? '#111827' : '#FFFFFF'
+      };
+      updatedPalette.push(newColor);
+      dmcToColorId.set(dmcItem.code, nextId);
+    }
+  }
+
+  palette.set(updatedPalette);
+
+  // 2. Build stitches map
+  const stitchesMap: Record<string, Stitch> = {};
+  for (const cell of result.stitches) {
+    const colorId = dmcToColorId.get(cell.dmc);
+    if (colorId !== undefined) {
+      stitchesMap[`${cell.x},${cell.y}`] = {
+        colorId,
+        type: cell.type
+      };
+    }
+  }
+
+  // 3. Create or update layer
+  const newStitchLayerId = `layer-${Date.now()}`;
+  const newStitchLayer: Layer = {
+    id: newStitchLayerId,
+    name: `Digitized: ${srcLayer?.name || 'Image'}`,
+    type: 'stitch',
+    visible: true,
+    locked: false,
+    opacity: 1.0,
+    stitches: stitchesMap
+  };
+
+  let nextLayers = [...currentLayers];
+  if (options.targetLayer === 'new') {
+    const srcIndex = nextLayers.findIndex(l => l.id === sourceLayerId);
+    if (srcIndex !== -1) {
+      nextLayers.splice(srcIndex + 1, 0, newStitchLayer);
+      if (!options.keepReferenceLayer) {
+        nextLayers = nextLayers.filter(l => l.id !== sourceLayerId);
+      } else {
+        // Dim reference layer to 0.35 so stitches pop clearly
+        nextLayers = nextLayers.map(l => l.id === sourceLayerId ? { ...l, opacity: Math.min(l.opacity, 0.35) } : l);
+      }
+    } else {
+      nextLayers.push(newStitchLayer);
+    }
+  } else {
+    // Merge into active layer
+    const activeId = get(activeLayerId);
+    nextLayers = nextLayers.map(l => {
+      if (l.id === activeId) {
+        return {
+          ...l,
+          stitches: { ...l.stitches, ...stitchesMap }
+        };
+      }
+      return l;
+    });
+    if (!options.keepReferenceLayer && sourceLayerId !== activeId) {
+      nextLayers = nextLayers.filter(l => l.id !== sourceLayerId);
+    }
+  }
+
+  layers.set(nextLayers);
+  activeLayerId.set(newStitchLayerId);
+
+  // Record undo delta
+  undoStack.update(u => [
+    ...u,
+    {
+      description: `Digitize ${srcLayer?.name || 'Image'}`,
+      layerId: newStitchLayerId,
+      before: {},
+      after: {},
+      layersSnapshot: currentLayers
+    }
+  ]);
+  redoStack.set([]);
+
+  isDigitizerModalOpen.set(false);
 }
 
 // ==========================================
