@@ -182,6 +182,25 @@ To ensure instant $O(1)$ lookups, low memory usage, and zero GC stutter during c
     * Integrated into "+ Image" dropdown in the Layers panel and File menu.
   * **Desktop File Drag-and-Drop**:
     * Dragging any image file (`PNG`, `JPG`, `WebP`, `SVG`) directly from the desktop/finder onto the window immediately loads it as an active reference image layer on the canvas.
+  * **Rotated/Transformed Digitization & Matching Preview**:
+    * Digitization sampling respects reference image layer scaling and rotation angles around center.
+    * Live digitizer preview matches the exact transformed canvas rotation and orientation.
+    * "Limit to Active Palette": Quantizes directly against the open project's existing floss colors using closest perceptual $\Delta E$ without introducing new palette slots.
+    * Selection-Scoped Digitization: When an active canvas selection exists, option to digitize strictly inside the selection mask, leaving surrounding areas untouched.
+    * Stable Modal Layout: `min-h-[114px]` container prevents dialog resizing/bouncing when color count is reduced below 4.
+
+* **Milestone 5.5: Arbitrary Selection Engine & Multi-Brand Thread Architecture** `[COMPLETED]`
+  * **Arbitrary Selection Tools**:
+    * **Marquee Selection (`S`)**: Rectangular bounding box with live resize and move.
+    * **Magic Wand (`W`)**: Contiguous flood selection of stitches (by `colorId`) on stitch layers, or pixels (by color distance tolerance) on reference image layers.
+    * **Freehand Lasso (`Q`)**: Arbitrary hand-drawn loops rasterized to discrete grid stitches via polygon ray-casting.
+    * **Selection Combinators**: Hold `Shift` for Union (add to selection), hold `Alt/Option` for Difference (subtract from selection).
+    * **Selection Modifications**: Dedicated "Select" menu with Select All (`Cmd+A`), Deselect (`Cmd+D`/`Esc`), Invert Selection (`Cmd+Shift+I`), Grow (+1 stitch), Shrink (-1 stitch), and Delete Selected Stitches (`Del`/`Backspace`).
+    * Discrete cross-stitch cell precision without unwanted feathering or accidental 1×1 stitch artifacts on click-off.
+  * **Multi-Brand Reference Thread Architecture (`threadBrands.ts`)**:
+    * Modular thread catalogs: **DMC Mouliné Spécial** (491 colors), **Anchor Stranded Cotton** (220 colors), **Cosmo Lecien** (65 colors), and **Digital Rainbow Gamut** (241 uniform perceptual RGB colors).
+    * Instant global pattern conversion: convert all current colors to the closest perceptual $\Delta E$ match in any target brand across all stitches with full undo/redo history.
+    * Thread Color Swapping: select any color in the active palette and swap it with any thread from any catalog across the entire project in a single undoable step.
 
 * **Milestone 6: Cross-Stitch Typography (Text Tool)** `[NEXT FOCUS]`
   * Pixel cross-stitch fonts (5px, 7px, 10px, backstitch cursive).
