@@ -57,6 +57,35 @@
   let startSplitterY = 0;
   let startLayersHeight = 280;
 
+  // Draggable side dock width state
+  let sideDockWidth = 340;
+  let isResizingSideDock = false;
+  let startDockX = 0;
+  let startDockWidth = 340;
+
+  function handleDockResizePointerDown(e: PointerEvent) {
+    isResizingSideDock = true;
+    startDockX = e.clientX;
+    startDockWidth = sideDockWidth;
+    (e.target as HTMLElement)?.setPointerCapture(e.pointerId);
+  }
+
+  function handleDockResizePointerMove(e: PointerEvent) {
+    if (!isResizingSideDock) return;
+    const dx = e.clientX - startDockX;
+    const newWidth = Math.max(260, Math.min(650, startDockWidth - dx));
+    sideDockWidth = newWidth;
+  }
+
+  function handleDockResizePointerUp(e: PointerEvent) {
+    if (isResizingSideDock) {
+      isResizingSideDock = false;
+      try {
+        (e.target as HTMLElement)?.releasePointerCapture(e.pointerId);
+      } catch (_) {}
+    }
+  }
+
   function handleSplitterPointerDown(e: PointerEvent) {
     isResizingSplitter = true;
     startSplitterY = e.clientY;
@@ -222,12 +251,15 @@
           }
           e.preventDefault();
           break;
-        case 'v': // Flip Floating Selection / Active Stamp Vertically
+        case 'v': // Move Tool (Photoshop/Illustrator standard) OR Flip Floating/Stamp Vertically
           if ($floatingSelection) {
             flipVertical();
             e.preventDefault();
           } else if ($activeTool === 'stamp' && $activeStamp) {
             flipActiveStampVertical();
+            e.preventDefault();
+          } else {
+            activeTool.set('move');
             e.preventDefault();
           }
           break;
@@ -320,7 +352,7 @@
     <!-- Side Dock Collapse Toggle Button -->
     <button
       class="absolute right-0 top-1/2 -translate-y-1/2 z-30 bg-[#252530] hover:bg-indigo-600 text-gray-400 hover:text-white border-y border-l border-[#3a3a4a] p-1 rounded-l-md shadow-lg transition-all hidden md:block"
-      style="right: {isSideDockOpen ? '320px' : '0px'};"
+      style="right: {isSideDockOpen ? `${sideDockWidth}px` : '0px'};"
       on:click={toggleDock}
       title={isSideDockOpen ? 'Collapse Side Panel' : 'Expand Side Panel'}
     >
@@ -333,7 +365,18 @@
 
     <!-- Right Side Dock (Clean Accordion for Palette & Layers) -->
     {#if isSideDockOpen}
-      <aside class="w-80 h-full flex flex-col bg-[#1e1e24] border-l border-[#2e2e38] shadow-2xl z-20 transition-all flex-shrink-0 select-none">
+      <aside
+        class="h-full flex flex-col bg-[#1e1e24] border-l border-[#2e2e38] shadow-2xl z-20 flex-shrink-0 select-none relative"
+        style="width: {sideDockWidth}px;"
+      >
+        <!-- Draggable Resizer on Left Edge of Dock -->
+        <div
+          class="absolute -left-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-indigo-500/40 active:bg-indigo-500 z-30 transition-colors select-none"
+          on:pointerdown={handleDockResizePointerDown}
+          on:pointermove={handleDockResizePointerMove}
+          on:pointerup={handleDockResizePointerUp}
+          title="Drag left/right to resize panel width"
+        ></div>
         <!-- Accordion Section 1: Floss & Palette -->
         <div class="flex flex-col {isPaletteExpanded ? (isLayersExpanded ? 'flex-1 min-h-0' : 'flex-1') : 'flex-shrink-0'} overflow-hidden">
           <button

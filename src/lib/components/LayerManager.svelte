@@ -44,8 +44,8 @@
   let draggedLayerId: string | null = null;
   let dragOverLayerId: string | null = null;
 
-  // Import Image Popover state
-  let showImportMenu = false;
+  // Dropdown menus state
+  let showNewLayerMenu = false;
   let fileInputEl: HTMLInputElement;
 
   function addNewLayer() {
@@ -241,79 +241,89 @@
 
       <div class="w-px h-3.5 bg-gray-700 mx-0.5"></div>
 
-      <!-- Import Image Button with Dropdown -->
-      <div class="relative">
+      <!-- Unified New Layer Split Button with Dropdown -->
+      <div class="relative flex items-center">
         <button
           type="button"
-          class="text-xs bg-cyan-700/80 hover:bg-cyan-600 text-white px-1.5 py-0.5 rounded flex items-center space-x-1 font-medium transition-colors shadow-sm cursor-pointer"
-          on:click={() => { showImportMenu = !showImportMenu; }}
-          title="Import Reference Image Layer"
+          class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-0.5 rounded-l flex items-center space-x-1 font-medium transition-colors shadow-sm cursor-pointer"
+          on:click={addNewLayer}
+          title="Create New Stitch Layer"
         >
-          <ImageIcon size={12} />
-          <span>+ Image</span>
-          <ChevronDown size={10} class="text-cyan-200" />
+          <Plus size={12} />
+          <span>New</span>
+        </button>
+        <button
+          type="button"
+          class="text-xs bg-indigo-750 hover:bg-indigo-600 text-white px-1 py-0.5 rounded-r border-l border-indigo-400/40 flex items-center justify-center transition-colors shadow-sm cursor-pointer"
+          on:click={() => { showNewLayerMenu = !showNewLayerMenu; }}
+          title="Choose Layer Type (Stitch, Text, Image)"
+        >
+          <ChevronDown size={11} />
         </button>
 
-        {#if showImportMenu}
+        {#if showNewLayerMenu}
           <div
-            class="absolute right-0 top-full mt-1.5 w-56 bg-[#23232e] border border-cyan-500/40 rounded-xl shadow-2xl py-1.5 text-xs text-gray-200 z-50 animate-fadeIn"
+            class="absolute right-0 top-full mt-1.5 w-56 bg-[#23232e] border border-indigo-500/40 rounded-xl shadow-2xl py-1.5 text-xs text-gray-200 z-50 animate-fadeIn"
             role="menu"
             tabindex="-1"
           >
+            <!-- 1. Stitch Layer -->
             <button
               type="button"
-              class="w-full px-3 py-1.5 flex items-center space-x-2 hover:bg-cyan-600 hover:text-white transition-colors cursor-pointer text-left"
-              on:click={() => { showImportMenu = false; fileInputEl?.click(); }}
+              class="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-indigo-600 hover:text-white transition-colors cursor-pointer text-left"
+              on:click={() => { showNewLayerMenu = false; addNewLayer(); }}
             >
-              <Upload size={13} class="text-cyan-400" />
+              <LayersIcon size={14} class="text-indigo-400" />
+              <div>
+                <div class="font-medium">Stitch Layer</div>
+                <div class="text-[10px] text-gray-400">Default grid for hand stitching</div>
+              </div>
+            </button>
+
+            <!-- 2. Text Layer -->
+            <button
+              type="button"
+              class="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-purple-600 hover:text-white transition-colors cursor-pointer text-left"
+              on:click={() => { showNewLayerMenu = false; openTextModal(); }}
+            >
+              <Type size={14} class="text-purple-400" />
+              <div>
+                <div class="font-medium">Text Layer...</div>
+                <div class="text-[10px] text-gray-400">Google Fonts & Yarndings glyphs (T)</div>
+              </div>
+            </button>
+
+            <div class="my-1 border-t border-gray-700/80"></div>
+
+            <!-- 3. Reference Image: Upload -->
+            <button
+              type="button"
+              class="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-cyan-600 hover:text-white transition-colors cursor-pointer text-left"
+              on:click={() => { showNewLayerMenu = false; fileInputEl?.click(); }}
+            >
+              <Upload size={14} class="text-cyan-400" />
               <div>
                 <div class="font-medium">Upload Image File...</div>
                 <div class="text-[10px] text-gray-400">PNG, JPG, WebP, SVG</div>
               </div>
             </button>
 
-            <div class="my-1 border-t border-gray-700"></div>
-            <div class="px-3 py-1 text-[10px] uppercase font-bold text-gray-400">Sample Test Photos</div>
-
+            <div class="px-3 pt-1.5 pb-0.5 text-[10px] uppercase font-bold text-gray-400">Sample Photos</div>
             {#each SAMPLE_IMAGES as sample}
               <button
                 type="button"
-                class="w-full px-3 py-1.5 flex items-center space-x-2 hover:bg-cyan-600 hover:text-white transition-colors cursor-pointer text-left"
-                on:click={() => handleLoadSample(sample.url, sample.title)}
+                class="w-full px-3 py-1 flex items-center space-x-2 hover:bg-cyan-600 hover:text-white transition-colors cursor-pointer text-left"
+                on:click={() => { showNewLayerMenu = false; handleLoadSample(sample.url, sample.title); }}
               >
-                <span class="text-base flex-shrink-0">
+                <span class="text-sm flex-shrink-0">
                   {sample.id.includes('cat') ? '🕶️' : '☕'}
                 </span>
-                <div class="truncate">
-                  <div class="font-medium truncate">{sample.title}</div>
-                  <div class="text-[10px] text-gray-400 truncate">{sample.description}</div>
-                </div>
+                <span class="truncate font-medium text-[11px]">{sample.title}</span>
               </button>
             {/each}
           </div>
         {/if}
       </div>
-
-      <!-- Add Text Layer Button -->
-      <button
-        type="button"
-        class="text-xs bg-purple-700/80 hover:bg-purple-600 text-white px-1.5 py-0.5 rounded flex items-center space-x-1 font-medium transition-colors shadow-sm cursor-pointer"
-        on:click={() => openTextModal()}
-        title="Add New Cross-Stitch Text Layer (T)"
-      >
-        <Type size={12} />
-        <span>+ Text</span>
-      </button>
-
-      <button
-        type="button"
-        class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-0.5 rounded flex items-center space-x-1 font-medium transition-colors shadow-sm cursor-pointer"
-        on:click={addNewLayer}
-        title="Create New Stitch Layer"
-      >
-        <Plus size={13} />
-        <span>New</span>
-      </button>
     </div>
   </div>
 
@@ -435,35 +445,32 @@
         </div>
 
         <div class="flex items-center space-x-1 flex-shrink-0">
-          <!-- Digitize button on Image Layers -->
+          <!-- Digitize button on Image Layers (compact icon) -->
           {#if layer.type === 'image'}
             <button
               type="button"
-              class="px-1.5 py-0.5 rounded bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-[10px] font-semibold flex items-center space-x-1 shadow-sm transition-all cursor-pointer mr-0.5"
+              class="p-1 rounded bg-cyan-900/60 hover:bg-cyan-600 text-cyan-200 hover:text-white border border-cyan-500/30 transition-all cursor-pointer mr-0.5"
               on:click|stopPropagation={() => openDigitizerForLayer(layer.id)}
-              title="Digitize reference image into DMC stitches"
+              title="Digitize image into DMC stitches"
             >
-              <Sparkles size={10} />
-              <span>Digitize</span>
+              <Sparkles size={11} />
             </button>
           {:else if layer.type === 'text'}
             <button
               type="button"
-              class="px-1.5 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 text-[10px] font-semibold flex items-center space-x-1 shadow-sm transition-all cursor-pointer mr-0.5"
+              class="p-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white border border-gray-700/60 transition-all cursor-pointer mr-0.5"
               on:click|stopPropagation={() => openTextModal(layer.id)}
               title="Edit text, font, size, or styling"
             >
-              <Edit2 size={10} />
-              <span>Edit</span>
+              <Edit2 size={11} />
             </button>
             <button
               type="button"
-              class="px-1.5 py-0.5 rounded bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-[10px] font-semibold flex items-center space-x-1 shadow-sm transition-all cursor-pointer mr-0.5"
+              class="p-1 rounded bg-purple-900/60 hover:bg-purple-600 text-purple-200 hover:text-white border border-purple-500/30 transition-all cursor-pointer mr-0.5"
               on:click|stopPropagation={() => openDigitizerForLayer(layer.id)}
-              title="Digitize text into DMC stitches with custom color reduction"
+              title="Digitize text into DMC stitches"
             >
-              <Sparkles size={10} />
-              <span>Digitize</span>
+              <Sparkles size={11} />
             </button>
           {/if}
 

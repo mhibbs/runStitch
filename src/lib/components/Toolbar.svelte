@@ -9,6 +9,7 @@
   } from '../stores/editorStore';
   import type { ActiveTool } from '../types';
   import {
+    Move,
     BoxSelect,
     LassoSelect,
     Wand,
@@ -40,6 +41,24 @@
 </script>
 
 <aside class="w-14 bg-[#1f1f26] border-r border-[#2e2e38] flex flex-col items-center py-3 select-none z-20 space-y-2.5 shadow-md overflow-y-auto overflow-x-hidden">
+  <!-- Move Tool (V) -->
+  <button
+    class="w-10 h-10 rounded-lg flex items-center justify-center transition-all relative group
+    {$activeTool === 'move'
+      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+      : 'text-gray-400 hover:text-white hover:bg-[#2b2b36]'}"
+    on:click={() => activeTool.set('move')}
+    title="Move Tool (V) - Drag selections or whole layer"
+    aria-label="Move Tool"
+  >
+    <Move size={19} />
+    <span class="absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
+      Move Tool (V)
+    </span>
+  </button>
+
+  <div class="w-7 h-px bg-[#2e2e38]"></div>
+
   <!-- Selection Tools Cluster -->
   <div class="flex flex-col space-y-1 w-11 items-center p-1 bg-[#17171e] rounded-xl border border-[#2d2d3a] shadow-inner">
     {#each selectionTools as tool}

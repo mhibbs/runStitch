@@ -221,7 +221,66 @@ export const CURATED_FONTS: CuratedFont[] = [
   }
 ];
 
+import { writable } from 'svelte/store';
+
+export const fontsReadyTrigger = writable<number>(0);
 const LOADED_FONTS = new Set<string>();
+let isPreloadingStarted = false;
+
+/**
+ * Preloads all curated Google Fonts in the background so dropdown previews and
+ * canvas typography render in their genuine typefaces immediately.
+ */
+export function preloadAllCuratedFonts() {
+  if (typeof window === 'undefined' || isPreloadingStarted) return;
+  isPreloadingStarted = true;
+
+  const bundleLinkId = 'google-fonts-curated-bundle';
+  if (!document.getElementById(bundleLinkId)) {
+    const combinedFamilies = [
+      'family=Yarndings+12',
+      'family=Yarndings+20',
+      'family=Yarndings+20+Charted',
+      'family=Jacquard+12',
+      'family=Jacquarda+Bastarda+9',
+      'family=Silkscreen:wght@400;700',
+      'family=Press+Start+2P',
+      'family=VT323',
+      'family=DotGothic16',
+      'family=Pixelify+Sans:wght@400..700',
+      'family=Great+Vibes',
+      'family=Dancing+Script:wght@400..700',
+      'family=Pacifico',
+      'family=Caveat:wght@400..700',
+      'family=Cinzel:wght@400..700',
+      'family=Playfair+Display:ital,wght@0,400..700;1,400..700',
+      'family=Marcellus',
+      'family=MedievalSharp',
+      'family=Comfortaa:wght@400..700',
+      'family=Outfit:wght@400..700',
+      'family=Bungee'
+    ].join('&');
+
+    const link = document.createElement('link');
+    link.id = bundleLinkId;
+    link.rel = 'stylesheet';
+    link.href = `https://fonts.googleapis.com/css2?${combinedFamilies}&display=swap`;
+    document.head.appendChild(link);
+  }
+
+  // Trigger ready notification once browser finishes layout
+  if (document.fonts) {
+    document.fonts.ready.then(() => {
+      for (const f of CURATED_FONTS) {
+        LOADED_FONTS.add(f.family);
+      }
+      fontsReadyTrigger.update(n => n + 1);
+    }).catch(err => {
+      console.warn('Font bundle ready failed:', err);
+      fontsReadyTrigger.update(n => n + 1);
+    });
+  }
+}
 
 /**
  * Dynamically loads a Google Font by family name.
@@ -248,6 +307,7 @@ export async function loadGoogleFont(fontInput: CuratedFont | string): Promise<b
     // Wait for the font to be ready in the document
     await document.fonts.load(`16px "${fontName}"`);
     LOADED_FONTS.add(fontName);
+    fontsReadyTrigger.update(n => n + 1);
     return true;
   } catch (err) {
     console.warn(`Could not load font ${fontName}:`, err);

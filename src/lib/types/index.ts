@@ -80,6 +80,7 @@ export interface Layer {
 }
 
 export type ActiveTool =
+  | 'move'
   | 'pencil'
   | 'eraser'
   | 'bucket'

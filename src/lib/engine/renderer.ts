@@ -172,8 +172,8 @@ export function renderStitches(
 
     ctx.globalAlpha = layer.opacity;
 
-    // 1. Reference Image Layer
-    if (layer.type === 'image' && layer.image) {
+    // 1. Reference Image & Text Layers (rendered via rasterized image)
+    if ((layer.type === 'image' || layer.type === 'text') && layer.image) {
       const img = getCachedImageElement(layer.image.src, onImageLoaded);
       if (img) {
         const { x, y, width: iw, height: ih, rotation = 0 } = layer.image;
@@ -356,8 +356,8 @@ export function renderOverlay(
 
   const { zoom, panX, panY } = viewport;
 
-  // 0. Render Active Image Layer Transform Frame & Handles
-  if (activeImageLayer && activeImageLayer.type === 'image' && activeImageLayer.image && activeImageLayer.visible) {
+  // 0. Render Active Image/Text Layer Transform Frame & Handles
+  if (activeImageLayer && (activeImageLayer.type === 'image' || activeImageLayer.type === 'text') && activeImageLayer.image && activeImageLayer.visible) {
     const img = activeImageLayer.image;
     const cx = panX + (img.x + img.width / 2) * zoom;
     const cy = panY + (img.y + img.height / 2) * zoom;
@@ -702,7 +702,7 @@ export function renderOverlay(
 
   // 5. Render standard single-cell hover cursor
   const isDraggingShape = shapePreviewCells && shapePreviewCells.length > 0;
-  const isImageActive = activeImageLayer && activeImageLayer.type === 'image';
+  const isImageActive = activeImageLayer && (activeImageLayer.type === 'image' || activeImageLayer.type === 'text');
   if (hoverCoord && !floatingSelection && activeTool !== 'select' && activeTool !== 'stamp' && !isDraggingShape && !isImageActive) {
     const { x, y } = hoverCoord;
     if (x >= 0 && x < grid.width && y >= 0 && y < grid.height) {
@@ -761,11 +761,11 @@ export function getImageHandleAt(
   if (Math.hypot(localX - hw, localY - hh) <= handleRadius) return 'se';
   if (Math.hypot(localX - (-hw), localY - hh) <= handleRadius) return 'sw';
 
-  // 4 Edges
-  if (Math.abs(localY - (-hh)) <= handleRadius && Math.abs(localX) < hw) return 'n';
-  if (Math.abs(localY - hh) <= handleRadius && Math.abs(localX) < hw) return 's';
-  if (Math.abs(localX - (-hw)) <= handleRadius && Math.abs(localY) < hh) return 'w';
-  if (Math.abs(localX - hw) <= handleRadius && Math.abs(localY) < hh) return 'e';
+  // 4 Side middle handles (centered at the midpoints of each edge)
+  if (Math.hypot(localX, localY - (-hh)) <= handleRadius) return 'n';
+  if (Math.hypot(localX, localY - hh) <= handleRadius) return 's';
+  if (Math.hypot(localX - (-hw), localY) <= handleRadius) return 'w';
+  if (Math.hypot(localX - hw, localY) <= handleRadius) return 'e';
 
   // Bounding border for moving/dragging the image layer
   // A narrow band (8px) around the perimeter of the bounding box

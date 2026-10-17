@@ -28,6 +28,8 @@
     copySelection,
     cutSelection,
     deleteSelection,
+    liftSelection,
+    offsetLayerStitches,
     commitFloatingSelection,
     cancelFloatingSelection,
     shapeFillMode,
@@ -135,6 +137,10 @@
     pointerScreenY: 0
   };
 
+  // Move Tool stitch layer translation
+  let isMovingStitchLayer = false;
+  let moveStitchStartGrid = { x: 0, y: 0 };
+
   // Marching ants animation loop
   let dashOffset = 0;
   let animFrameId: number | null = null;
@@ -142,7 +148,7 @@
   function startMarchingAnts() {
     if (animFrameId !== null) return;
     function loop() {
-      if ($selection || $floatingSelection || ($activeTool === 'stamp' && $activeStamp) || ($activeLayer?.type === 'image') || isDrawingLasso) {
+      if ($selection || $floatingSelection || ($activeTool === 'stamp' && $activeStamp) || ($activeLayer?.type === 'image' || $activeLayer?.type === 'text') || isDrawingLasso) {
         dashOffset = (dashOffset + 0.35) % 10;
         redrawOverlay();
         animFrameId = requestAnimationFrame(loop);
@@ -154,7 +160,7 @@
     animFrameId = requestAnimationFrame(loop);
   }
 
-  $: if ($selection || $floatingSelection || ($activeTool === 'stamp' && $activeStamp) || ($activeLayer?.type === 'image') || isDrawingLasso) {
+  $: if ($selection || $floatingSelection || ($activeTool === 'stamp' && $activeStamp) || ($activeLayer?.type === 'image' || $activeLayer?.type === 'text') || isDrawingLasso) {
     startMarchingAnts();
   }
 
@@ -287,8 +293,8 @@
     isPointerDown = true;
     lastPointerPos = { x: e.clientX, y: e.clientY };
 
-    // Active Image Layer Handle Hit-Testing & Interaction
-    if ($activeLayer && $activeLayer.type === 'image' && $activeLayer.image && $activeLayer.visible) {
+    // Active Image or Text Layer Handle Hit-Testing & Interaction
+    if ($activeLayer && ($activeLayer.type === 'image' || $activeLayer.type === 'text') && $activeLayer.image && $activeLayer.visible) {
       const rect = containerEl.getBoundingClientRect();
       const clientX = e.clientX - rect.left;
       const clientY = e.clientY - rect.top;
@@ -311,6 +317,42 @@
 
     const { x, y } = screenToGrid(e.clientX, e.clientY);
 
+    // Move Tool logic (Photoshop/Illustrator standard)
+    if ($activeTool === 'move') {
+      if ($floatingSelection) {
+        isDraggingFloating = true;
+        dragFloatingOffset = { dx: x - $floatingSelection.x, dy: y - $floatingSelection.y };
+        return;
+      }
+      if ($selection && isCellSelected($selection, x, y)) {
+        liftSelection(e.altKey);
+        if ($floatingSelection) {
+          isDraggingFloating = true;
+          dragFloatingOffset = { dx: x - $floatingSelection.x, dy: y - $floatingSelection.y };
+        }
+        return;
+      }
+      if ($activeLayer && ($activeLayer.type === 'image' || $activeLayer.type === 'text') && $activeLayer.image) {
+        isTransformingImage = true;
+        activeImageHandle = 'body';
+        imageTransformStart = {
+          x: $activeLayer.image.x,
+          y: $activeLayer.image.y,
+          width: $activeLayer.image.width,
+          height: $activeLayer.image.height,
+          rotation: $activeLayer.image.rotation || 0,
+          pointerScreenX: e.clientX,
+          pointerScreenY: e.clientY
+        };
+        return;
+      }
+      if ($activeLayer && (!$activeLayer.type || $activeLayer.type === 'stitch')) {
+        isMovingStitchLayer = true;
+        moveStitchStartGrid = { x, y };
+        return;
+      }
+    }
+
     // Floating Selection Drag & Commit logic
     if ($floatingSelection) {
       const f = $floatingSelection;
@@ -323,6 +365,22 @@
         // Clicking outside commits the floating selection
         commitFloatingSelection();
       }
+    }
+
+    // Selection Tool in-place drag (lift & move selection content)
+    if ($activeTool === 'select' && $selection && isCellSelected($selection, x, y) && !e.shiftKey && !e.altKey) {
+      liftSelection(false);
+      if ($floatingSelection) {
+        isDraggingFloating = true;
+        dragFloatingOffset = { dx: x - $floatingSelection.x, dy: y - $floatingSelection.y };
+      }
+      return;
+    }
+
+    // Prevent stitch-drawing tools from operating on Image or Text layers
+    const isStitchDrawingTool = ['pencil', 'eraser', 'bucket', 'line', 'rectangle', 'ellipse'].includes($activeTool);
+    if (isStitchDrawingTool && $activeLayer && ($activeLayer.type === 'image' || $activeLayer.type === 'text')) {
+      return;
     }
 
     // Active Stamp Placement logic
@@ -536,8 +594,11 @@
       return;
     }
 
-    // Dynamic cursor hover feedback for image handles
-    if (!isTransformingImage && $activeLayer && $activeLayer.type === 'image' && $activeLayer.image && $activeLayer.visible) {
+    // Dynamic cursor hover feedback for image/text handles or invalid tools
+    const isStitchDrawingTool = ['pencil', 'eraser', 'bucket', 'line', 'rectangle', 'ellipse'].includes($activeTool);
+    if (isStitchDrawingTool && $activeLayer && ($activeLayer.type === 'image' || $activeLayer.type === 'text')) {
+      dynamicCursor = 'not-allowed';
+    } else if (!isTransformingImage && $activeLayer && ($activeLayer.type === 'image' || $activeLayer.type === 'text') && $activeLayer.image && $activeLayer.visible) {
       const rect = containerEl.getBoundingClientRect();
       const clientX = e.clientX - rect.left;
       const clientY = e.clientY - rect.top;
@@ -549,9 +610,13 @@
         else if (handle === 'e' || handle === 'w') dynamicCursor = 'ew-resize';
         else if (handle === 'rotate') dynamicCursor = 'grab';
         else if (handle === 'body') dynamicCursor = 'move';
+      } else if ($activeTool === 'move') {
+        dynamicCursor = 'move';
       } else {
         dynamicCursor = '';
       }
+    } else if ($activeTool === 'move') {
+      dynamicCursor = 'move';
     } else if (!isTransformingImage && dynamicCursor !== '') {
       dynamicCursor = '';
     }
@@ -562,6 +627,18 @@
       hoverCoord.set({ x, y });
     } else {
       hoverCoord.set(null);
+    }
+
+    // Moving stitch layer with Move Tool
+    if (isMovingStitchLayer && $activeLayer) {
+      const dx = x - moveStitchStartGrid.x;
+      const dy = y - moveStitchStartGrid.y;
+      if (dx !== 0 || dy !== 0) {
+        offsetLayerStitches($activeLayer.id, dx, dy);
+        moveStitchStartGrid = { x, y };
+        redrawStitches();
+      }
+      return;
     }
 
     // Drawing freehand lasso path
@@ -623,6 +700,7 @@
     activePointers.delete(e.pointerId);
 
     if (activePointers.size === 0) {
+      isMovingStitchLayer = false;
       if (isTransformingImage) {
         isTransformingImage = false;
         activeImageHandle = null;
@@ -1151,14 +1229,14 @@
 
       <div class="w-px h-3.5 bg-gray-700"></div>
 
-      <!-- Hover Coordinate -->
+      <!-- Hover Coordinate (3-character width per digit, left aligned: X:1  ,Y:999) -->
       <div class="font-mono flex items-center text-xs whitespace-pre select-none tracking-tight">
         {#if $hoverCoord}
-          <span class="text-indigo-400 font-semibold">X:{String($hoverCoord.x + 1).padStart(3, ' ')}</span>
+          <span class="text-indigo-400 font-semibold">X:{String($hoverCoord.x + 1).padEnd(3, ' ')}</span>
           <span class="text-gray-500">,</span>
-          <span class="text-indigo-400 font-semibold">Y:{String($hoverCoord.y + 1).padStart(3, ' ')}</span>
+          <span class="text-indigo-400 font-semibold">Y:{String($hoverCoord.y + 1).padEnd(3, ' ')}</span>
         {:else}
-          <span class="text-gray-500">X: --,Y: --</span>
+          <span class="text-gray-500">X:-- ,Y:-- </span>
         {/if}
       </div>
 

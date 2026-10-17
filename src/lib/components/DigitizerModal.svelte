@@ -54,6 +54,9 @@
   let previewView: 'stitches' | 'source' | 'split' = 'stitches';
   let previewZoom = 1;
   let isPickingBgColor = false;
+  let isPanningPreview = false;
+  let previewPanStart = { x: 0, y: 0, scrollLeft: 0, scrollTop: 0 };
+  let previewContainerEl: HTMLDivElement;
 
   // Result state
   let digitizeResult: DigitizerResult | null = null;
@@ -419,6 +422,42 @@
     hoveredPickColor = `#${rHex}${gHex}${bHex}`.toUpperCase();
   }
 
+  function handlePreviewPointerDown(e: PointerEvent) {
+    if (isPickingBgColor) return;
+    if (previewZoom > 1 && previewContainerEl) {
+      isPanningPreview = true;
+      previewPanStart = {
+        x: e.clientX,
+        y: e.clientY,
+        scrollLeft: previewContainerEl.scrollLeft,
+        scrollTop: previewContainerEl.scrollTop
+      };
+      try {
+        previewContainerEl.setPointerCapture(e.pointerId);
+      } catch (_) {}
+    }
+  }
+
+  function handlePreviewPointerMove(e: PointerEvent) {
+    if (isPanningPreview && previewContainerEl) {
+      const dx = e.clientX - previewPanStart.x;
+      const dy = e.clientY - previewPanStart.y;
+      previewContainerEl.scrollLeft = previewPanStart.scrollLeft - dx;
+      previewContainerEl.scrollTop = previewPanStart.scrollTop - dy;
+    } else {
+      handleCanvasPointerMove(e);
+    }
+  }
+
+  function handlePreviewPointerUp(e: PointerEvent) {
+    if (isPanningPreview) {
+      isPanningPreview = false;
+      try {
+        previewContainerEl?.releasePointerCapture(e.pointerId);
+      } catch (_) {}
+    }
+  }
+
   function handleCanvasPointerLeave() {
     hoveredPickColor = null;
   }
@@ -535,8 +574,14 @@
             </div>
           </div>
 
-          <!-- Preview Frame -->
-          <div class="relative flex-1 min-h-[340px] max-h-[460px] bg-[#0E0E12] rounded-xl border border-gray-800 overflow-auto flex items-center justify-center p-4">
+          <!-- Preview Frame (with Pan & Zoom Support) -->
+          <div
+            bind:this={previewContainerEl}
+            class="relative flex-1 min-h-[340px] max-h-[460px] bg-[#0E0E12] rounded-xl border border-gray-800 overflow-auto flex items-center justify-center p-4 {previewZoom > 1 ? (isPanningPreview ? 'cursor-grabbing' : 'cursor-grab') : ''}"
+            on:pointerdown={handlePreviewPointerDown}
+            on:pointermove={handlePreviewPointerMove}
+            on:pointerup={handlePreviewPointerUp}
+          >
             {#if !isImageLoaded}
               <div class="flex flex-col items-center space-y-2 text-gray-500">
                 <span class="animate-spin text-cyan-400">⏳</span>
@@ -545,9 +590,9 @@
             {:else}
               <canvas
                 bind:this={previewCanvas}
-                class="max-w-full max-h-full rounded shadow-xl object-contain {isPickingBgColor ? 'cursor-crosshair' : 'cursor-default'}"
+                class="rounded shadow-xl object-contain {previewZoom <= 1 ? 'max-w-full max-h-full' : ''} {isPickingBgColor ? 'cursor-crosshair' : (previewZoom > 1 ? (isPanningPreview ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default')}"
+                style={previewZoom > 1 && previewCanvas ? `width: ${previewCanvas.width}px; height: ${previewCanvas.height}px; flex-shrink: 0;` : ''}
                 on:click={handleCanvasClick}
-                on:pointermove={handleCanvasPointerMove}
                 on:pointerleave={handleCanvasPointerLeave}
               ></canvas>
             {/if}
@@ -596,10 +641,18 @@
               <button
                 type="button"
                 class="p-1 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 cursor-pointer"
-                on:click={() => { previewZoom = Math.min(3, previewZoom + 0.25); renderPreview(); }}
+                on:click={() => { previewZoom = Math.min(4, previewZoom + 0.25); renderPreview(); }}
                 title="Zoom In Preview"
               >
                 <ZoomIn size={14} />
+              </button>
+              <button
+                type="button"
+                class="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 font-mono transition-colors ml-0.5 cursor-pointer"
+                on:click={() => { previewZoom = 1; renderPreview(); }}
+                title="Reset Zoom to 100%"
+              >
+                100%
               </button>
             </div>
           </div>

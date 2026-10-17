@@ -744,6 +744,111 @@ export function cutSelection(): boolean {
 }
 
 /**
+ * Lifts stitches inside the active selection into a floating selection in-place,
+ * ready for immediate interactive dragging without jumping to the center of the screen.
+ * If copyInstead is true (e.g. Alt/Option + drag), the original stitches remain.
+ */
+export function liftSelection(copyInstead = false): boolean {
+  const sel = get(selection);
+  const activeId = get(activeLayerId);
+  const currentLayers = get(layers);
+  const targetLayer = currentLayers.find(l => l.id === activeId);
+  if (!sel || !targetLayer || targetLayer.locked) return false;
+
+  const relStitches: Record<string, Stitch> = {};
+  const beforeDelta: Record<string, Stitch | null> = {};
+  const afterDelta: Record<string, Stitch | null> = {};
+
+  const keys = sel.cells ? Array.from(sel.cells) : [];
+  if (!sel.cells) {
+    for (let y = sel.y; y < sel.y + sel.height; y++) {
+      for (let x = sel.x; x < sel.x + sel.width; x++) {
+        keys.push(`${x},${y}`);
+      }
+    }
+  }
+
+  for (const key of keys) {
+    const s = targetLayer.stitches[key];
+    if (s) {
+      const [x, y] = key.split(',').map(Number);
+      relStitches[`${x - sel.x},${y - sel.y}`] = { ...s };
+      if (!copyInstead) {
+        beforeDelta[key] = { ...s };
+        afterDelta[key] = null;
+      }
+    }
+  }
+
+  if (Object.keys(relStitches).length === 0) return false;
+
+  if (!copyInstead && Object.keys(beforeDelta).length > 0) {
+    layers.update(ls => ls.map(l => {
+      if (l.id === activeId) {
+        const updated = { ...l.stitches };
+        for (const key of Object.keys(beforeDelta)) {
+          delete updated[key];
+        }
+        return { ...l, stitches: updated };
+      }
+      return l;
+    }));
+
+    undoStack.update(u => [
+      ...u,
+      {
+        description: 'Move Selection',
+        layerId: activeId,
+        before: beforeDelta,
+        after: afterDelta
+      }
+    ]);
+    redoStack.set([]);
+  }
+
+  floatingSelection.set({
+    x: sel.x,
+    y: sel.y,
+    width: sel.width,
+    height: sel.height,
+    stitches: relStitches
+  });
+
+  selection.set(null);
+  return true;
+}
+
+/**
+ * Translates all stitches on the active layer by (dx, dy).
+ * Used by the Move Tool when dragging with no selection.
+ */
+export function offsetLayerStitches(layerId: string, dx: number, dy: number) {
+  if (dx === 0 && dy === 0) return;
+  const currentLayers = get(layers);
+  const target = currentLayers.find(l => l.id === layerId);
+  if (!target || target.locked) return;
+
+  const g = get(grid);
+  const updatedStitches: Record<string, Stitch> = {};
+
+  for (const [key, stitch] of Object.entries(target.stitches)) {
+    const [x, y] = key.split(',').map(Number);
+    const nx = x + dx;
+    const ny = y + dy;
+    if (nx >= 0 && nx < g.width && ny >= 0 && ny < g.height) {
+      updatedStitches[`${nx},${ny}`] = { ...stitch };
+    }
+  }
+
+  layers.update(ls => ls.map(l => {
+    if (l.id === layerId) {
+      return { ...l, stitches: updatedStitches };
+    }
+    return l;
+  }));
+}
+
+/**
  * Deletes all stitches inside the active selection on the active layer (Delete / Backspace).
  */
 export function deleteSelection(): boolean {
@@ -1626,9 +1731,19 @@ export function quickDigitizeTextLayer(layerId: string) {
 export function updateImageLayer(layerId: string, updates: Partial<ReferenceImage>) {
   layers.update(ls => ls.map(l => {
     if (l.id === layerId && l.image) {
+      const updatedImage = { ...l.image, ...updates };
+      const updatedTextData = l.textData ? {
+        ...l.textData,
+        x: updatedImage.x,
+        y: updatedImage.y,
+        width: updatedImage.width,
+        height: updatedImage.height,
+        rotation: updatedImage.rotation
+      } : undefined;
       return {
         ...l,
-        image: { ...l.image, ...updates }
+        image: updatedImage,
+        ...(updatedTextData ? { textData: updatedTextData } : {})
       };
     }
     return l;
