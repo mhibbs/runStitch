@@ -309,7 +309,9 @@ export function digitizeImageToStitches(
   gridY: number,
   targetWidthStitches: number,
   targetHeightStitches: number,
-  options: DigitizerOptions
+  options: DigitizerOptions,
+  rotation: number = 0,
+  projectPaletteFloss?: DMCEntry[]
 ): DigitizerResult {
   const W = Math.max(1, Math.round(targetWidthStitches));
   const H = Math.max(1, Math.round(targetHeightStitches));
@@ -327,7 +329,17 @@ export function digitizeImageToStitches(
     };
   }
 
-  ctx.drawImage(imageEl, 0, 0, W, H);
+  // Apply rotation around center if layer has been rotated
+  if (rotation && rotation % 360 !== 0) {
+    ctx.save();
+    ctx.translate(W / 2, H / 2);
+    ctx.rotate((rotation * Math.PI) / 180);
+    ctx.drawImage(imageEl, -W / 2, -H / 2, W, H);
+    ctx.restore();
+  } else {
+    ctx.drawImage(imageEl, 0, 0, W, H);
+  }
+
   const imgData = ctx.getImageData(0, 0, W, H);
   const pixels = imgData.data;
 
@@ -346,6 +358,14 @@ export function digitizeImageToStitches(
 
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
+      // Check selection mask constraint (if active, only digitize selected canvas cells)
+      if (options.selectionMask) {
+        const gridKey = `${gridX + x},${gridY + y}`;
+        if (!options.selectionMask.has(gridKey)) {
+          continue;
+        }
+      }
+
       const idx = (y * W + x) * 4;
       const r = pixels[idx];
       const g = pixels[idx + 1];
@@ -368,8 +388,16 @@ export function digitizeImageToStitches(
     }
   }
 
-  // Pass 2: Quantize palette to target K DMC colors
-  const activePalette = extractDmcPalette(samplePixels, Math.max(2, options.maxColors));
+  // Pass 2: Quantize palette to target K DMC colors (or restrict strictly to active project palette)
+  let activePalette: CachedDMC[];
+  if (options.useActivePaletteOnly && projectPaletteFloss && projectPaletteFloss.length > 0) {
+    activePalette = projectPaletteFloss.map(entry => ({
+      ...entry,
+      lab: rgbToLab(entry.r, entry.g, entry.b)
+    }));
+  } else {
+    activePalette = extractDmcPalette(samplePixels, Math.max(2, options.maxColors));
+  }
 
   // Pass 3: Map cells to DMC with optional Error Diffusion Dithering
   // Buffers for floating-point RGB error diffusion

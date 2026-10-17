@@ -24,6 +24,14 @@ import { createDefaultPalette, CHART_SYMBOLS, getHighContrastTextColor, DMC_CATA
 import { saveCustomStamp } from '../data/motifLibrary';
 import type { PlacedStitch } from '../engine/borderGenerator';
 import { hexToRgb, type DigitizerResult } from '../engine/digitizer';
+import {
+  invertSelection,
+  growSelection,
+  shrinkSelection,
+  isCellSelected,
+  getSelectedCells
+} from '../engine/geometry';
+import { convertPaletteToBrand, THREAD_BRANDS } from '../data/threadBrands';
 
 // Initial state
 const defaultPalette = createDefaultPalette();
@@ -73,10 +81,18 @@ export const selectionBounds = derived(
     const active = $layers.find(l => l.id === $activeId);
     let stitchCount = 0;
     if (active) {
-      for (let y = $sel.y; y < $sel.y + $sel.height; y++) {
-        for (let x = $sel.x; x < $sel.x + $sel.width; x++) {
-          if (active.stitches[`${x},${y}`]) {
+      if ($sel.cells) {
+        for (const key of $sel.cells) {
+          if (active.stitches[key]) {
             stitchCount++;
+          }
+        }
+      } else {
+        for (let y = $sel.y; y < $sel.y + $sel.height; y++) {
+          for (let x = $sel.x; x < $sel.x + $sel.width; x++) {
+            if (active.stitches[`${x},${y}`]) {
+              stitchCount++;
+            }
           }
         }
       }
@@ -84,6 +100,7 @@ export const selectionBounds = derived(
     return {
       ...$sel,
       stitchCount,
+      totalCells: $sel.cells ? $sel.cells.size : $sel.width * $sel.height,
       inchWidth: ($sel.width / $grid.fabricCount).toFixed(1),
       inchHeight: ($sel.height / $grid.fabricCount).toFixed(1)
     };
@@ -341,10 +358,10 @@ export function redo() {
   undoStack.update(u => [...u, action]);
 }
 
-export function addColorToActivePalette(entry: DMCEntry) {
+export function addColorToActivePalette(entry: { code: string; name: string; hex: string; brandId?: string }) {
   palette.update(pal => {
     // Check if already in palette
-    const existing = pal.find(p => p.dmc === entry.code);
+    const existing = pal.find(p => p.dmc === entry.code && (!entry.brandId || p.brand === entry.brandId));
     if (existing) {
       selectedColorId.set(existing.id);
       return pal;
@@ -355,6 +372,7 @@ export function addColorToActivePalette(entry: DMCEntry) {
       dmc: entry.code,
       name: entry.name,
       hex: entry.hex,
+      brand: entry.brandId || 'dmc',
       symbol: CHART_SYMBOLS[(pal.length) % CHART_SYMBOLS.length],
       symbolColor: getHighContrastTextColor(entry.hex)
     };
@@ -641,11 +659,21 @@ export function copySelection(): boolean {
   if (!sel || !targetLayer) return false;
 
   const relStitches: Record<string, Stitch> = {};
-  for (let y = sel.y; y < sel.y + sel.height; y++) {
-    for (let x = sel.x; x < sel.x + sel.width; x++) {
-      const s = targetLayer.stitches[`${x},${y}`];
+  if (sel.cells) {
+    for (const key of sel.cells) {
+      const s = targetLayer.stitches[key];
       if (s) {
+        const [x, y] = key.split(',').map(Number);
         relStitches[`${x - sel.x},${y - sel.y}`] = { ...s };
+      }
+    }
+  } else {
+    for (let y = sel.y; y < sel.y + sel.height; y++) {
+      for (let x = sel.x; x < sel.x + sel.width; x++) {
+        const s = targetLayer.stitches[`${x},${y}`];
+        if (s) {
+          relStitches[`${x - sel.x},${y - sel.y}`] = { ...s };
+        }
       }
     }
   }
@@ -670,17 +698,23 @@ export function cutSelection(): boolean {
   const beforeDelta: Record<string, Stitch | null> = {};
   const afterDelta: Record<string, Stitch | null> = {};
 
+  const keysToDelete = sel.cells ? Array.from(sel.cells) : [];
+  if (!sel.cells) {
+    for (let y = sel.y; y < sel.y + sel.height; y++) {
+      for (let x = sel.x; x < sel.x + sel.width; x++) {
+        keysToDelete.push(`${x},${y}`);
+      }
+    }
+  }
+
   layers.update(ls => ls.map(l => {
     if (l.id === activeId) {
       const updated = { ...l.stitches };
-      for (let y = sel.y; y < sel.y + sel.height; y++) {
-        for (let x = sel.x; x < sel.x + sel.width; x++) {
-          const key = `${x},${y}`;
-          if (updated[key]) {
-            beforeDelta[key] = { ...updated[key] };
-            afterDelta[key] = null;
-            delete updated[key];
-          }
+      for (const key of keysToDelete) {
+        if (updated[key]) {
+          beforeDelta[key] = { ...updated[key] };
+          afterDelta[key] = null;
+          delete updated[key];
         }
       }
       return { ...l, stitches: updated };
@@ -703,6 +737,178 @@ export function cutSelection(): boolean {
 
   selection.set(null);
   return true;
+}
+
+/**
+ * Deletes all stitches inside the active selection on the active layer (Delete / Backspace).
+ */
+export function deleteSelection(): boolean {
+  const sel = get(selection);
+  const activeId = get(activeLayerId);
+  const currentLayers = get(layers);
+  const targetLayer = currentLayers.find(l => l.id === activeId);
+  if (!sel || !targetLayer || targetLayer.locked) return false;
+
+  const beforeDelta: Record<string, Stitch | null> = {};
+  const afterDelta: Record<string, Stitch | null> = {};
+
+  const keysToDelete = sel.cells ? Array.from(sel.cells) : [];
+  if (!sel.cells) {
+    for (let y = sel.y; y < sel.y + sel.height; y++) {
+      for (let x = sel.x; x < sel.x + sel.width; x++) {
+        keysToDelete.push(`${x},${y}`);
+      }
+    }
+  }
+
+  layers.update(ls => ls.map(l => {
+    if (l.id === activeId) {
+      const updated = { ...l.stitches };
+      for (const key of keysToDelete) {
+        if (updated[key]) {
+          beforeDelta[key] = { ...updated[key] };
+          afterDelta[key] = null;
+          delete updated[key];
+        }
+      }
+      return { ...l, stitches: updated };
+    }
+    return l;
+  }));
+
+  if (Object.keys(beforeDelta).length > 0) {
+    undoStack.update(u => [
+      ...u,
+      {
+        description: 'Delete Selected Stitches',
+        layerId: activeId,
+        before: beforeDelta,
+        after: afterDelta
+      }
+    ]);
+    redoStack.set([]);
+    return true;
+  }
+
+  return false;
+}
+
+export function invertCurrentSelection() {
+  const g = get(grid);
+  const sel = get(selection);
+  const inverted = invertSelection(sel, g.width, g.height);
+  selection.set(inverted);
+}
+
+export function growCurrentSelection() {
+  const g = get(grid);
+  const sel = get(selection);
+  const grown = growSelection(sel, g.width, g.height);
+  if (grown) selection.set(grown);
+}
+
+export function shrinkCurrentSelection() {
+  const g = get(grid);
+  const sel = get(selection);
+  const shrunk = shrinkSelection(sel, g.width, g.height);
+  selection.set(shrunk);
+}
+
+// Active Thread Brand ('dmc' | 'anchor' | 'cosmo' | 'rainbow')
+export const activeThreadBrand = writable<string>('dmc');
+
+/**
+ * Swaps a specific palette color across the pattern with a chosen replacement thread.
+ */
+export function swapPaletteColor(
+  targetColorId: number,
+  newThread: { code: string; name: string; hex: string; brandId?: string }
+) {
+  const currentPalette = get(palette);
+  const currentLayers = get(layers);
+
+  const targetColor = currentPalette.find(c => c.id === targetColorId);
+  if (!targetColor) return;
+
+  // Check if newThread already exists in the palette under another color ID
+  const existingSameColor = currentPalette.find(c => c.dmc === newThread.code && c.id !== targetColorId);
+
+  // Snapshot layers and palette for undo
+  const oldLayersSnapshot = JSON.parse(JSON.stringify(currentLayers));
+
+  if (existingSameColor) {
+    // Merge targetColor into existingSameColor across all layers
+    const targetId = existingSameColor.id;
+    layers.update(ls => ls.map(l => {
+      if (l.type === 'image') return l;
+      const updated = { ...l.stitches };
+      let changed = false;
+      for (const [key, stitch] of Object.entries(updated)) {
+        if (stitch.colorId === targetColorId) {
+          updated[key] = { ...stitch, colorId: targetId };
+          changed = true;
+        }
+      }
+      return changed ? { ...l, stitches: updated } : l;
+    }));
+
+    // Remove targetColor from palette
+    palette.update(ps => ps.filter(c => c.id !== targetColorId));
+    if (get(selectedColorId) === targetColorId) {
+      selectedColorId.set(targetId);
+    }
+  } else {
+    // In-place replace of the thread details
+    palette.update(ps => ps.map(c => {
+      if (c.id === targetColorId) {
+        return {
+          ...c,
+          dmc: newThread.code,
+          name: newThread.name,
+          hex: newThread.hex,
+          brand: newThread.brandId || 'dmc'
+        };
+      }
+      return c;
+    }));
+  }
+
+  // Record Undo Delta
+  undoStack.update(u => [
+    ...u,
+    {
+      description: `Swap Thread ${targetColor.dmc} → ${newThread.code}`,
+      layerId: get(activeLayerId),
+      before: {},
+      after: {},
+      layersSnapshot: oldLayersSnapshot
+    }
+  ]);
+  redoStack.set([]);
+}
+
+/**
+ * Performs a global closest-match color swap for all open pattern colors to a target thread brand.
+ */
+export function convertProjectToBrand(targetBrandId: string) {
+  const currentPalette = get(palette);
+  const oldLayersSnapshot = JSON.parse(JSON.stringify(get(layers)));
+
+  const { updatedPalette } = convertPaletteToBrand(currentPalette, targetBrandId);
+  palette.set(updatedPalette);
+  activeThreadBrand.set(targetBrandId);
+
+  undoStack.update(u => [
+    ...u,
+    {
+      description: `Convert to ${targetBrandId.toUpperCase()} Threads`,
+      layerId: get(activeLayerId),
+      before: {},
+      after: {},
+      layersSnapshot: oldLayersSnapshot
+    }
+  ]);
+  redoStack.set([]);
 }
 
 export function pasteClipboard() {

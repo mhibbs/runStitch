@@ -6,14 +6,17 @@
     closeDigitizerModal,
     layers,
     palette,
+    selection,
     applyDigitizedResult
   } from '../stores/editorStore';
   import {
     analyzeImageComplexity,
     digitizeImageToStitches,
+    hexToRgb,
     type DigitizerResult,
     type ImageComplexityAnalysis
   } from '../engine/digitizer';
+  import { getSelectedCells } from '../engine/geometry';
   import type { DigitizerOptions, DitherMode } from '../types';
   import {
     X,
@@ -26,7 +29,8 @@
     Pipette,
     Palette,
     Eye,
-    Maximize2
+    Maximize2,
+    Crop
   } from 'lucide-svelte';
 
   let previewCanvas: HTMLCanvasElement;
@@ -42,6 +46,8 @@
   let backgroundTolerance = 18;
   let targetLayer: 'new' | 'active' = 'new';
   let keepReferenceLayer = true;
+  let useActivePaletteOnly = false;
+  let restrictToSelection = true;
 
   // Preview display mode
   let previewView: 'stitches' | 'source' | 'split' = 'stitches';
@@ -56,6 +62,8 @@
   // Find source layer and its image
   $: sourceLayer = $layers.find(l => l.id === $digitizerSourceLayerId);
   $: refImage = sourceLayer?.image;
+  $: hasActiveSelection = !!$selection;
+  $: activeSelectionMask = hasActiveSelection ? getSelectedCells($selection) : null;
 
   $: if ($isDigitizerModalOpen && refImage) {
     loadImage(refImage.src);
@@ -91,7 +99,7 @@
     }, 40);
   }
 
-  $: if (isImageLoaded && (maxColors || ditherMode || ignoreBackground || backgroundHex || backgroundTolerance)) {
+  $: if (isImageLoaded && (maxColors || ditherMode || ignoreBackground || backgroundHex || backgroundTolerance || useActivePaletteOnly !== undefined || restrictToSelection !== undefined)) {
     scheduleDigitize();
   }
 
@@ -107,11 +115,26 @@
         backgroundHex,
         backgroundTolerance,
         targetLayer,
-        keepReferenceLayer
+        keepReferenceLayer,
+        useActivePaletteOnly,
+        selectionMask: (restrictToSelection && activeSelectionMask && activeSelectionMask.size > 0) ? activeSelectionMask : undefined
       };
 
       const targetW = Math.max(1, Math.round(refImage.width));
       const targetH = Math.max(1, Math.round(refImage.height));
+
+      // Extract existing project palette threads for closest-match quantization
+      const projectFloss = $palette.map(p => {
+        const rgb = hexToRgb(p.hex);
+        return {
+          code: p.dmc,
+          name: p.name,
+          hex: p.hex,
+          r: rgb.r,
+          g: rgb.g,
+          b: rgb.b
+        };
+      });
 
       digitizeResult = digitizeImageToStitches(
         sourceImg,
@@ -119,7 +142,9 @@
         refImage.y,
         targetW,
         targetH,
-        options
+        options,
+        refImage.rotation || 0,
+        projectFloss
       );
 
       renderPreview();
@@ -127,6 +152,20 @@
       console.error('Digitization failed:', err);
     } finally {
       isProcessing = false;
+    }
+  }
+
+  function drawSourceRotated(ctx: CanvasRenderingContext2D, w: number, h: number) {
+    if (!sourceImg) return;
+    const rot = refImage?.rotation || 0;
+    if (rot % 360 !== 0) {
+      ctx.save();
+      ctx.translate(w / 2, h / 2);
+      ctx.rotate((rot * Math.PI) / 180);
+      ctx.drawImage(sourceImg, -w / 2, -h / 2, w, h);
+      ctx.restore();
+    } else {
+      ctx.drawImage(sourceImg, 0, 0, w, h);
     }
   }
 
@@ -157,11 +196,11 @@
     }
 
     if (previewView === 'source') {
-      // Draw source image scaled to preview
-      ctx.drawImage(sourceImg, 0, 0, canvasW, canvasH);
+      // Draw source image scaled to preview matching layer rotation
+      drawSourceRotated(ctx, canvasW, canvasH);
     } else if (previewView === 'split') {
       // Left half source, right half stitches
-      ctx.drawImage(sourceImg, 0, 0, canvasW, canvasH);
+      drawSourceRotated(ctx, canvasW, canvasH);
       const splitX = Math.floor(canvasW / 2);
 
       ctx.save();
@@ -229,6 +268,20 @@
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
         ctx.lineWidth = 0.5;
         ctx.strokeRect(px, py, cellSize, cellSize);
+      }
+    }
+
+    // Visual feedback for selection boundary: dim out cells outside selection mask
+    if (restrictToSelection && activeSelectionMask && activeSelectionMask.size > 0) {
+      ctx.fillStyle = 'rgba(15, 15, 25, 0.45)';
+      for (let ly = 0; ly < targetH; ly++) {
+        for (let lx = 0; lx < targetW; lx++) {
+          const gx = originX + lx;
+          const gy = originY + ly;
+          if (!activeSelectionMask.has(`${gx},${gy}`)) {
+            ctx.fillRect(lx * cellSize, ly * cellSize, cellSize, cellSize);
+          }
+        }
       }
     }
   }
@@ -413,56 +466,96 @@
             <div class="flex items-center justify-between">
               <div class="flex items-center space-x-2">
                 <Palette size={15} class="text-cyan-400" />
-                <span class="text-xs font-semibold text-gray-200 uppercase tracking-wider">DMC Thread Palette</span>
+                <span class="text-xs font-semibold text-gray-200 uppercase tracking-wider">Thread Palette</span>
               </div>
-              <span class="font-mono text-sm font-bold text-cyan-400">{maxColors} Colors</span>
+              <span class="font-mono text-sm font-bold text-cyan-400">{useActivePaletteOnly ? $palette.length : maxColors} Colors</span>
             </div>
 
-            {#if complexity}
-              <div class="bg-cyan-950/40 border border-cyan-800/50 rounded-lg px-2.5 py-1.5 flex items-center justify-between text-[11px]">
-                <span class="text-cyan-200">
-                  ✦ {complexity.isGrayscale ? 'Monochrome / Grayscale' : 'Full Color'} image
+            <!-- Restrict to Active Palette Toggle -->
+            <label class="flex items-center justify-between text-xs text-gray-300 p-2 rounded-lg bg-[#181820] border border-gray-800 cursor-pointer hover:border-gray-700 transition-colors">
+              <div class="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  bind:checked={useActivePaletteOnly}
+                  class="rounded border-gray-700 bg-gray-900 text-cyan-500 focus:ring-0"
+                />
+                <span class="font-medium">Limit to Active Palette ({$palette.length} colors)</span>
+              </div>
+              {#if useActivePaletteOnly}
+                <span class="text-[10px] text-cyan-300 font-bold bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-700">
+                  Closest Match
                 </span>
-                <button
-                  type="button"
-                  class="text-cyan-400 hover:text-cyan-200 underline cursor-pointer font-medium ml-2"
-                  on:click={() => { maxColors = complexity?.recommendedColors ?? 14; }}
-                >
-                  Auto ({complexity.recommendedColors})
-                </button>
+              {/if}
+            </label>
+
+            {#if !useActivePaletteOnly}
+              {#if complexity}
+                <div class="bg-cyan-950/40 border border-cyan-800/50 rounded-lg px-2.5 py-1.5 flex items-center justify-between text-[11px]">
+                  <span class="text-cyan-200">
+                    ✦ {complexity.isGrayscale ? 'Monochrome / Grayscale' : 'Full Color'} image
+                  </span>
+                  <button
+                    type="button"
+                    class="text-cyan-400 hover:text-cyan-200 underline cursor-pointer font-medium ml-2"
+                    on:click={() => { maxColors = complexity?.recommendedColors ?? 14; }}
+                  >
+                    Auto ({complexity.recommendedColors})
+                  </button>
+                </div>
+              {/if}
+
+              <div>
+                <input
+                  type="range"
+                  min="2"
+                  max="40"
+                  step="1"
+                  bind:value={maxColors}
+                  class="w-full accent-cyan-500 cursor-pointer"
+                />
+                <div class="flex justify-between text-[10px] text-gray-500 mt-1">
+                  <span>2 (Minimal)</span>
+                  <span>12</span>
+                  <span>24</span>
+                  <span>40 (High Detail)</span>
+                </div>
+              </div>
+
+              <!-- Quick Presets -->
+              <div class="flex flex-wrap gap-1.5 pt-1">
+                {#each [4, 8, 14, 20, 28] as presetCount}
+                  <button
+                    type="button"
+                    class="px-2 py-0.5 rounded text-[11px] font-mono border transition-colors cursor-pointer {maxColors === presetCount ? 'bg-cyan-600/30 border-cyan-400 text-cyan-200 font-bold' : 'bg-[#181820] border-gray-700 text-gray-400 hover:text-gray-200'}"
+                    on:click={() => { maxColors = presetCount; }}
+                  >
+                    {presetCount}
+                  </button>
+                {/each}
               </div>
             {/if}
-
-            <div>
-              <input
-                type="range"
-                min="2"
-                max="40"
-                step="1"
-                bind:value={maxColors}
-                class="w-full accent-cyan-500 cursor-pointer"
-              />
-              <div class="flex justify-between text-[10px] text-gray-500 mt-1">
-                <span>2 (Minimal)</span>
-                <span>12</span>
-                <span>24</span>
-                <span>40 (High Detail)</span>
-              </div>
-            </div>
-
-            <!-- Quick Presets -->
-            <div class="flex flex-wrap gap-1.5 pt-1">
-              {#each [4, 8, 14, 20, 28] as presetCount}
-                <button
-                  type="button"
-                  class="px-2 py-0.5 rounded text-[11px] font-mono border transition-colors cursor-pointer {maxColors === presetCount ? 'bg-cyan-600/30 border-cyan-400 text-cyan-200 font-bold' : 'bg-[#181820] border-gray-700 text-gray-400 hover:text-gray-200'}"
-                  on:click={() => { maxColors = presetCount; }}
-                >
-                  {presetCount}
-                </button>
-              {/each}
-            </div>
           </div>
+
+          <!-- Selection Scope (if selection exists on canvas) -->
+          {#if hasActiveSelection}
+            <div class="bg-indigo-950/30 border border-indigo-800/50 rounded-xl p-3 space-y-2">
+              <div class="flex items-center justify-between text-xs">
+                <div class="flex items-center space-x-1.5 text-indigo-300 font-semibold">
+                  <Crop size={14} />
+                  <span>Selection Scope</span>
+                </div>
+                <span class="font-mono text-[11px] text-indigo-400 font-bold">{activeSelectionMask?.size ?? 0} Stitches</span>
+              </div>
+              <label class="flex items-center space-x-2 text-xs text-gray-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  bind:checked={restrictToSelection}
+                  class="rounded border-gray-700 bg-gray-900 text-indigo-500 focus:ring-0"
+                />
+                <span>Only digitize inside current selection</span>
+              </label>
+            </div>
+          {/if}
 
           <!-- Section 2: Dithering Method -->
           <div class="bg-[#121217] border border-gray-800 rounded-xl p-4 space-y-2.5">
@@ -586,15 +679,15 @@
             </label>
           </div>
 
-          <!-- Section 5: Extracted DMC Palette Swatches -->
-          {#if digitizeResult && digitizeResult.palette.length > 0}
-            <div class="bg-[#121217] border border-gray-800 rounded-xl p-3 space-y-2">
-              <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider flex items-center justify-between">
-                <span>Matched DMC Floss</span>
-                <span class="font-mono text-cyan-400">{digitizeResult.palette.length} Threads</span>
-              </div>
+          <!-- Section 6: Matched Thread Swatches (Always min-h-[114px] to prevent modal shrinking when < 4 colors) -->
+          <div class="bg-[#121217] border border-gray-800 rounded-xl p-3 space-y-2">
+            <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider flex items-center justify-between">
+              <span>Matched Floss Threads</span>
+              <span class="font-mono text-cyan-400">{digitizeResult?.palette?.length ?? 0} Threads</span>
+            </div>
 
-              <div class="max-h-28 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+            <div class="min-h-[114px] max-h-28 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+              {#if digitizeResult && digitizeResult.palette.length > 0}
                 {#each digitizeResult.palette as thread}
                   <div class="flex items-center justify-between px-2 py-1 rounded bg-[#181820] text-xs">
                     <div class="flex items-center space-x-2">
@@ -602,14 +695,18 @@
                         class="w-3.5 h-3.5 rounded-full border border-gray-600 shadow-sm flex-shrink-0"
                         style="background-color: {thread.hex};"
                       ></span>
-                      <span class="font-mono font-bold text-gray-200">DMC {thread.code}</span>
+                      <span class="font-mono font-bold text-gray-200">{thread.code}</span>
                       <span class="text-gray-400 truncate max-w-[130px]">{thread.name}</span>
                     </div>
                   </div>
                 {/each}
-              </div>
+              {:else}
+                <div class="h-[110px] flex items-center justify-center text-xs text-gray-500 italic">
+                  Sampling colors...
+                </div>
+              {/if}
             </div>
-          {/if}
+          </div>
         </div>
       </div>
 

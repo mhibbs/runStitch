@@ -12,6 +12,7 @@ export interface PaletteColor {
   hex: string;
   symbol: string;
   symbolColor?: string; // High contrast text color for the symbol
+  brand?: string;       // 'dmc' | 'anchor' | 'cosmo' | 'rainbow'
 }
 
 export type LayerType = 'stitch' | 'image';
@@ -37,6 +38,8 @@ export interface DigitizerOptions {
   backgroundTolerance?: number; // 0-100
   targetLayer: 'new' | 'active';
   keepReferenceLayer: boolean;
+  useActivePaletteOnly?: boolean; // Limit quantization strictly to current project palette
+  selectionMask?: Set<string>;   // Digitize only stitches inside this selection ("x,y" keys)
 }
 
 export interface Layer {
@@ -65,6 +68,8 @@ export type ActiveTool =
   | 'picker'
   | 'pan'
   | 'select'
+  | 'wand'
+  | 'lasso'
   | 'line'
   | 'rectangle'
   | 'ellipse'
@@ -97,6 +102,7 @@ export interface SelectionBox {
   y: number;      // top-left grid Y
   width: number;  // width in stitches
   height: number; // height in stitches
+  cells?: Set<string>; // Optional set of "x,y" coordinates for arbitrary non-rectangular selections
 }
 
 export interface FloatingSelection {

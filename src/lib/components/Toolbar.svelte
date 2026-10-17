@@ -9,6 +9,8 @@
   import type { ActiveTool } from '../types';
   import {
     BoxSelect,
+    LassoSelect,
+    Wand,
     Pencil,
     Eraser,
     PaintBucket,
@@ -21,8 +23,13 @@
     Hand
   } from 'lucide-svelte';
 
-  const drawTools: { id: ActiveTool; label: string; icon: any; shortcut: string }[] = [
+  const selectionTools: { id: ActiveTool; label: string; icon: any; shortcut: string }[] = [
     { id: 'select', label: 'Marquee Select (S)', icon: BoxSelect, shortcut: 'S' },
+    { id: 'lasso', label: 'Lasso Tool (Q)', icon: LassoSelect, shortcut: 'Q' },
+    { id: 'wand', label: 'Magic Wand (W)', icon: Wand, shortcut: 'W' }
+  ];
+
+  const drawTools: { id: ActiveTool; label: string; icon: any; shortcut: string }[] = [
     { id: 'pencil', label: 'Pencil Stitch (B)', icon: Pencil, shortcut: 'B' },
     { id: 'eraser', label: 'Eraser (E)', icon: Eraser, shortcut: 'E' },
     { id: 'bucket', label: 'Flood Fill (F)', icon: PaintBucket, shortcut: 'F' },
@@ -30,7 +37,30 @@
   ];
 </script>
 
-<aside class="w-14 bg-[#1f1f26] border-r border-[#2e2e38] flex flex-col items-center py-3 select-none z-20 space-y-3 shadow-md overflow-y-auto overflow-x-hidden">
+<aside class="w-14 bg-[#1f1f26] border-r border-[#2e2e38] flex flex-col items-center py-3 select-none z-20 space-y-2.5 shadow-md overflow-y-auto overflow-x-hidden">
+  <!-- Selection Tools Cluster -->
+  <div class="flex flex-col space-y-1 w-11 items-center p-1 bg-[#17171e] rounded-xl border border-[#2d2d3a] shadow-inner">
+    {#each selectionTools as tool}
+      <button
+        class="w-9 h-9 rounded-lg flex items-center justify-center transition-all relative group
+        {$activeTool === tool.id
+          ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+          : 'text-gray-400 hover:text-white hover:bg-[#2b2b36]'}"
+        on:click={() => activeTool.set(tool.id)}
+        title={tool.label}
+        aria-label={tool.label}
+      >
+        <svelte:component this={tool.icon} size={17} />
+        <!-- Tooltip -->
+        <span class="absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
+          {tool.label}
+        </span>
+      </button>
+    {/each}
+  </div>
+
+  <div class="w-7 h-px bg-[#2e2e38]"></div>
+
   <!-- Primary Drawing Tools -->
   <div class="flex flex-col space-y-1 w-full items-center">
     {#each drawTools as tool}

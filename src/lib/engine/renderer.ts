@@ -348,7 +348,8 @@ export function renderOverlay(
   dashOffset: number = 0,
   shapePreviewCells: { x: number; y: number }[] | null = null,
   activeStamp: MotifStamp | null = null,
-  activeImageLayer: Layer | null = null
+  activeImageLayer: Layer | null = null,
+  lassoPoints: { x: number; y: number }[] | null = null
 ) {
   ctx.save();
   ctx.clearRect(0, 0, width, height);
@@ -438,28 +439,108 @@ export function renderOverlay(
     ctx.restore();
   }
 
-  // 1. Render active Marquee Selection (Marching Ants)
+  // 1. Render active Selection (Marching Ants) - Supports Arbitrary Cells (Wand/Lasso) & Marquee
   if (selection && selection.width > 0 && selection.height > 0) {
-    const sx = Math.floor(panX + selection.x * zoom);
-    const sy = Math.floor(panY + selection.y * zoom);
-    const sw = Math.floor(selection.width * zoom);
-    const sh = Math.floor(selection.height * zoom);
+    if (selection.cells && selection.cells.size > 0) {
+      // Arbitrary non-rectangular selection (Wand, Lasso, Invert, Grow, Shrink)
+      ctx.fillStyle = 'rgba(99, 102, 241, 0.20)';
 
-    // Translucent indigo highlight
-    ctx.fillStyle = 'rgba(99, 102, 241, 0.16)';
-    ctx.fillRect(sx, sy, sw, sh);
+      // Highlight each cell in the selection
+      for (const key of selection.cells) {
+        const [cx, cy] = key.split(',').map(Number);
+        const px = Math.floor(panX + cx * zoom);
+        const py = Math.floor(panY + cy * zoom);
+        ctx.fillRect(px, py, zoom, zoom);
+      }
 
-    // Marching ants dashed border (double layer black/white for universal high contrast)
+      // Collect boundary segments where cell touches an unselected cell or canvas edge
+      interface Segment { x1: number; y1: number; x2: number; y2: number }
+      const segments: Segment[] = [];
+
+      for (const key of selection.cells) {
+        const [cx, cy] = key.split(',').map(Number);
+        const px = Math.floor(panX + cx * zoom);
+        const py = Math.floor(panY + cy * zoom);
+
+        // Top edge
+        if (!selection.cells.has(`${cx},${cy - 1}`)) {
+          segments.push({ x1: px, y1: py, x2: px + zoom, y2: py });
+        }
+        // Bottom edge
+        if (!selection.cells.has(`${cx},${cy + 1}`)) {
+          segments.push({ x1: px, y1: py + zoom, x2: px + zoom, y2: py + zoom });
+        }
+        // Left edge
+        if (!selection.cells.has(`${cx - 1},${cy}`)) {
+          segments.push({ x1: px, y1: py, x2: px, y2: py + zoom });
+        }
+        // Right edge
+        if (!selection.cells.has(`${cx + 1},${cy}`)) {
+          segments.push({ x1: px + zoom, y1: py, x2: px + zoom, y2: py + zoom });
+        }
+      }
+
+      // Double-layer marching ants for maximum contrast
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 5]);
+      ctx.lineDashOffset = -dashOffset;
+      ctx.strokeStyle = '#0F0F17';
+      ctx.beginPath();
+      for (const s of segments) {
+        ctx.moveTo(s.x1 + 0.5, s.y1 + 0.5);
+        ctx.lineTo(s.x2 + 0.5, s.y2 + 0.5);
+      }
+      ctx.stroke();
+
+      ctx.lineDashOffset = -dashOffset + 5;
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.beginPath();
+      for (const s of segments) {
+        ctx.moveTo(s.x1 + 0.5, s.y1 + 0.5);
+        ctx.lineTo(s.x2 + 0.5, s.y2 + 0.5);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    } else {
+      // Standard rectangular selection
+      const sx = Math.floor(panX + selection.x * zoom);
+      const sy = Math.floor(panY + selection.y * zoom);
+      const sw = Math.floor(selection.width * zoom);
+      const sh = Math.floor(selection.height * zoom);
+
+      ctx.fillStyle = 'rgba(99, 102, 241, 0.16)';
+      ctx.fillRect(sx, sy, sw, sh);
+
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 5]);
+      ctx.lineDashOffset = -dashOffset;
+      ctx.strokeStyle = '#0F0F17';
+      ctx.strokeRect(sx + 0.5, sy + 0.5, sw - 1, sh - 1);
+
+      ctx.lineDashOffset = -dashOffset + 5;
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.strokeRect(sx + 0.5, sy + 0.5, sw - 1, sh - 1);
+      ctx.setLineDash([]);
+    }
+  }
+
+  // 1.5. Render In-Progress Lasso Freehand Path
+  if (lassoPoints && lassoPoints.length > 1) {
     ctx.lineWidth = 1.5;
-    ctx.setLineDash([5, 5]);
+    ctx.setLineDash([4, 4]);
     ctx.lineDashOffset = -dashOffset;
-    ctx.strokeStyle = '#0F0F17';
-    ctx.strokeRect(sx + 0.5, sy + 0.5, sw - 1, sh - 1);
+    ctx.strokeStyle = '#38BDF8';
+    ctx.beginPath();
+    const firstX = Math.floor(panX + (lassoPoints[0].x + 0.5) * zoom);
+    const firstY = Math.floor(panY + (lassoPoints[0].y + 0.5) * zoom);
+    ctx.moveTo(firstX, firstY);
 
-    ctx.lineDashOffset = -dashOffset + 5;
-    ctx.strokeStyle = '#FFFFFF';
-    ctx.strokeRect(sx + 0.5, sy + 0.5, sw - 1, sh - 1);
-
+    for (let i = 1; i < lassoPoints.length; i++) {
+      const px = Math.floor(panX + (lassoPoints[i].x + 0.5) * zoom);
+      const py = Math.floor(panY + (lassoPoints[i].y + 0.5) * zoom);
+      ctx.lineTo(px, py);
+    }
+    ctx.stroke();
     ctx.setLineDash([]);
   }
 

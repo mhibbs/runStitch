@@ -30,6 +30,10 @@
     pasteClipboard,
     selectAll,
     clearSelection,
+    invertCurrentSelection,
+    growCurrentSelection,
+    shrinkCurrentSelection,
+    deleteSelection,
     flipHorizontal,
     flipVertical,
     rotate90,
@@ -70,14 +74,19 @@
     Square,
     Circle,
     Sparkles,
-    Image as ImageIcon
+    Image as ImageIcon,
+    BoxSelect,
+    Expand,
+    Shrink,
+    RefreshCw,
+    X
   } from 'lucide-svelte';
 
-  let openMenu: 'file' | 'edit' | 'design' | 'view' | 'help' | null = null;
+  let openMenu: 'file' | 'edit' | 'select' | 'design' | 'view' | 'help' | null = null;
   let fileInputEl: HTMLInputElement;
   let imageInputEl: HTMLInputElement;
 
-  function toggleMenu(menu: 'file' | 'edit' | 'design' | 'view' | 'help') {
+  function toggleMenu(menu: 'file' | 'edit' | 'select' | 'design' | 'view' | 'help') {
     openMenu = openMenu === menu ? null : menu;
   }
 
@@ -396,6 +405,92 @@
             <Trash2 size={14} />
             <span>Clear Active Layer...</span>
           </div>
+        </button>
+      </div>
+    {/if}
+  </div>
+
+  <!-- Select Menu -->
+  <div class="relative">
+    <button
+      class="px-2.5 py-1 rounded hover:bg-[#2e2e3c] transition-colors {openMenu === 'select' ? 'bg-[#2e2e3c] text-white' : ''}"
+      on:click|stopPropagation={() => toggleMenu('select')}
+    >
+      Select
+    </button>
+    {#if openMenu === 'select'}
+      <div class="absolute left-0 top-full mt-1 w-56 bg-[#1f1f28] border border-gray-700 rounded-lg shadow-2xl py-1 z-50 text-xs text-gray-200">
+        <button
+          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-indigo-600 hover:text-white transition-colors"
+          on:click={() => { closeMenu(); selectAll(); }}
+        >
+          <div class="flex items-center space-x-2">
+            <BoxSelect size={14} />
+            <span>Select All</span>
+          </div>
+          <span class="text-[10px] text-gray-400">Cmd+A</span>
+        </button>
+
+        <button
+          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-indigo-600 hover:text-white transition-colors disabled:opacity-40"
+          on:click={() => { closeMenu(); clearSelection(); }}
+          disabled={!$selection && !$floatingSelection}
+        >
+          <div class="flex items-center space-x-2">
+            <X size={14} />
+            <span>Deselect</span>
+          </div>
+          <span class="text-[10px] text-gray-400">Cmd+D / Esc</span>
+        </button>
+
+        <button
+          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-indigo-600 hover:text-white transition-colors disabled:opacity-40"
+          on:click={() => { closeMenu(); invertCurrentSelection(); }}
+          disabled={!$selection}
+        >
+          <div class="flex items-center space-x-2">
+            <RefreshCw size={14} />
+            <span>Invert Selection</span>
+          </div>
+          <span class="text-[10px] text-gray-400">Cmd+Shift+I</span>
+        </button>
+
+        <div class="my-1 border-t border-gray-700"></div>
+
+        <button
+          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-indigo-600 hover:text-white transition-colors disabled:opacity-40"
+          on:click={() => { closeMenu(); growCurrentSelection(); }}
+          disabled={!$selection}
+        >
+          <div class="flex items-center space-x-2">
+            <Expand size={14} />
+            <span>Grow Selection (+1 Stitch)</span>
+          </div>
+        </button>
+
+        <button
+          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-indigo-600 hover:text-white transition-colors disabled:opacity-40"
+          on:click={() => { closeMenu(); shrinkCurrentSelection(); }}
+          disabled={!$selection}
+        >
+          <div class="flex items-center space-x-2">
+            <Shrink size={14} />
+            <span>Shrink Selection (-1 Stitch)</span>
+          </div>
+        </button>
+
+        <div class="my-1 border-t border-gray-700"></div>
+
+        <button
+          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-red-600 hover:text-white transition-colors disabled:opacity-40"
+          on:click={() => { closeMenu(); deleteSelection(); }}
+          disabled={!$selection}
+        >
+          <div class="flex items-center space-x-2">
+            <Trash2 size={14} />
+            <span>Delete Selected Stitches</span>
+          </div>
+          <span class="text-[10px] text-gray-400">Del</span>
         </button>
       </div>
     {/if}

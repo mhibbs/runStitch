@@ -3,7 +3,11 @@
   import { Keyboard, X } from 'lucide-svelte';
 
   const shortcutList = [
-    { key: 'S', desc: 'Marquee Selection Tool' },
+    { key: 'S', desc: 'Marquee Rectangular Selection' },
+    { key: 'W', desc: 'Magic Wand (Flood / Contiguous Select)' },
+    { key: 'Q', desc: 'Freehand Lasso Selection' },
+    { key: 'Shift + Drag/Click', desc: 'Add to Selection (Union)' },
+    { key: 'Alt/Opt + Drag/Click', desc: 'Subtract from Selection (Difference)' },
     { key: 'B', desc: 'Pencil Stitch Tool' },
     { key: 'E', desc: 'Eraser Tool' },
     { key: 'F', desc: 'Flood Fill (Paint Bucket)' },
@@ -26,6 +30,7 @@
     { key: 'Enter', desc: 'Commit Floating Stitches' },
     { key: 'Cmd/Ctrl + A', desc: 'Select All' },
     { key: 'Cmd/Ctrl + D', desc: 'Deselect Selection' },
+    { key: 'Cmd/Ctrl + Shift + I', desc: 'Invert Selection' },
     { key: 'Del / Backspace', desc: 'Delete Selected Stitches' },
     { key: 'Cmd/Ctrl + Z', desc: 'Undo Stitch Action' },
     { key: 'Cmd/Ctrl + Shift + Z', desc: 'Redo Stitch Action' },

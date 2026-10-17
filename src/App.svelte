@@ -30,6 +30,9 @@
     pasteClipboard,
     selectAll,
     clearSelection,
+    invertCurrentSelection,
+    deleteSelection,
+    selection,
     activeStamp,
     rotateActiveStamp,
     flipActiveStampHorizontal,
@@ -162,11 +165,33 @@
       return;
     }
 
+    // Invert Selection: Cmd+Shift+I or Ctrl+Shift+I
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'i') {
+      e.preventDefault();
+      invertCurrentSelection();
+      return;
+    }
+
+    // Delete Selected Stitches: Del or Backspace when selection exists
+    if ((e.key === 'Delete' || e.key === 'Backspace') && $selection) {
+      e.preventDefault();
+      deleteSelection();
+      return;
+    }
+
     // Single-key tool switches (only when no modifier keys are held)
     if (!e.metaKey && !e.ctrlKey && !e.altKey) {
       switch (e.key.toLowerCase()) {
         case 's': // Marquee Selection tool (S for Select)
           activeTool.set('select');
+          e.preventDefault();
+          break;
+        case 'w': // Magic Wand Selection tool
+          activeTool.set('wand');
+          e.preventDefault();
+          break;
+        case 'q': // Lasso Selection tool
+          activeTool.set('lasso');
           e.preventDefault();
           break;
         case 'b': // Brush / Pencil

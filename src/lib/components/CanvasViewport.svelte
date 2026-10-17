@@ -27,6 +27,7 @@
     clearSelection,
     copySelection,
     cutSelection,
+    deleteSelection,
     commitFloatingSelection,
     cancelFloatingSelection,
     shapeFillMode,
@@ -47,12 +48,26 @@
     setLayerOpacity,
     toggleLayerVisibility
   } from '../stores/editorStore';
-  import { renderBackground, renderStitches, renderOverlay, getImageHandleAt, type ImageHandleType } from '../engine/renderer';
+  import {
+    renderBackground,
+    renderStitches,
+    renderOverlay,
+    getImageHandleAt,
+    getCachedImageElement,
+    type ImageHandleType
+  } from '../engine/renderer';
   import {
     getLineCells,
     getRectangleCells,
     getEllipseCells,
     constrainCoordinates,
+    getLassoCells,
+    floodSelectStitches,
+    floodSelectImage,
+    unionSelection,
+    subtractSelection,
+    createSelectionFromCells,
+    isCellSelected,
     type Point
   } from '../engine/geometry';
   import {
@@ -96,6 +111,10 @@
   let isDraggingFloating = false;
   let dragFloatingOffset = { dx: 0, dy: 0 };
 
+  // Freehand Lasso tool state
+  let isDrawingLasso = false;
+  let lassoPoints: Point[] | null = null;
+
   // In-progress Shape drawing state
   let isDrawingShape = false;
   let shapeOrigin = { x: 0, y: 0 };
@@ -123,7 +142,7 @@
   function startMarchingAnts() {
     if (animFrameId !== null) return;
     function loop() {
-      if ($selection || $floatingSelection || ($activeTool === 'stamp' && $activeStamp) || ($activeLayer?.type === 'image')) {
+      if ($selection || $floatingSelection || ($activeTool === 'stamp' && $activeStamp) || ($activeLayer?.type === 'image') || isDrawingLasso) {
         dashOffset = (dashOffset + 0.35) % 10;
         redrawOverlay();
         animFrameId = requestAnimationFrame(loop);
@@ -135,7 +154,7 @@
     animFrameId = requestAnimationFrame(loop);
   }
 
-  $: if ($selection || $floatingSelection || ($activeTool === 'stamp' && $activeStamp) || ($activeLayer?.type === 'image')) {
+  $: if ($selection || $floatingSelection || ($activeTool === 'stamp' && $activeStamp) || ($activeLayer?.type === 'image') || isDrawingLasso) {
     startMarchingAnts();
   }
 
@@ -198,7 +217,8 @@
       dashOffset,
       shapePreviewCells,
       $activeStamp,
-      $activeLayer
+      $activeLayer,
+      lassoPoints
     );
   }
 
@@ -323,11 +343,48 @@
       return;
     }
 
+    // Clicking off an active selection deselects (unless holding Shift/Alt to modify)
+    if ($selection && !e.shiftKey && !e.altKey && !isCellSelected($selection, x, y)) {
+      clearSelection();
+    }
+
+    // Magic Wand Selection Tool logic
+    if ($activeTool === 'wand') {
+      if (x >= 0 && x < $grid.width && y >= 0 && y < $grid.height) {
+        let cells = new Set<string>();
+        if ($activeLayer.type === 'image' && $activeLayer.image) {
+          const img = getCachedImageElement($activeLayer.image.src);
+          if (img) {
+            cells = floodSelectImage(x, y, img, $activeLayer.image, 20, $grid.width, $grid.height);
+          }
+        } else {
+          cells = floodSelectStitches(x, y, $activeLayer, $grid.width, $grid.height);
+        }
+
+        if (e.shiftKey) {
+          setSelection(unionSelection($selection, cells));
+        } else if (e.altKey) {
+          setSelection(subtractSelection($selection, cells));
+        } else {
+          setSelection(createSelectionFromCells(cells));
+        }
+        redrawOverlay();
+        return;
+      }
+    }
+
+    // Freehand Lasso Selection Tool logic
+    if ($activeTool === 'lasso') {
+      isDrawingLasso = true;
+      lassoPoints = [{ x, y }];
+      redrawOverlay();
+      return;
+    }
+
     // Marquee Selection Tool logic (requires dragging to form a selection; single click clears)
     if ($activeTool === 'select') {
-      const prior = $selection;
-      if (prior) {
-        clearSelection();
+      if (!e.shiftKey && !e.altKey && $selection) {
+        clearedSelectionOnClick = true;
       }
 
       isSelecting = true;
@@ -507,6 +564,16 @@
       hoverCoord.set(null);
     }
 
+    // Drawing freehand lasso path
+    if (isDrawingLasso && lassoPoints) {
+      const lastPt = lassoPoints[lassoPoints.length - 1];
+      if (lastPt.x !== x || lastPt.y !== y) {
+        lassoPoints = [...lassoPoints, { x, y }];
+        redrawOverlay();
+      }
+      return;
+    }
+
     // Moving floating selection
     if (isDraggingFloating && $floatingSelection) {
       const newX = x - dragFloatingOffset.dx;
@@ -561,6 +628,24 @@
         activeImageHandle = null;
       }
 
+      // Finalize Freehand Lasso Selection
+      if (isDrawingLasso && lassoPoints) {
+        if (lassoPoints.length >= 3) {
+          const cells = getLassoCells(lassoPoints, $grid.width, $grid.height);
+          const cellSet = new Set(cells.map(c => `${c.x},${c.y}`));
+          if (e.shiftKey) {
+            setSelection(unionSelection($selection, cellSet));
+          } else if (e.altKey) {
+            setSelection(subtractSelection($selection, cellSet));
+          } else {
+            setSelection(createSelectionFromCells(cellSet));
+          }
+        }
+        isDrawingLasso = false;
+        lassoPoints = null;
+        redrawOverlay();
+      }
+
       if (isDrawingShape && shapePreviewCells && shapePreviewCells.length > 0) {
         const toolLabel = $activeTool === 'line' ? 'Draw Line' : ($activeTool === 'rectangle' ? 'Draw Rectangle' : 'Draw Ellipse');
         beginStroke(toolLabel);
@@ -580,8 +665,39 @@
       }
       isPointerDown = false;
       isPanning = false;
+
+      // Finalize Marquee Selection (with Shift=Union and Alt=Subtract modifier support)
       if (isSelecting) {
-        if (clearedSelectionOnClick && !didDragSelection) {
+        if (didDragSelection) {
+          const { x, y } = screenToGrid(e.clientX, e.clientY);
+          const clampedX = Math.max(0, Math.min($grid.width - 1, x));
+          const clampedY = Math.max(0, Math.min($grid.height - 1, y));
+          const minX = Math.min(selectionStart.x, clampedX);
+          const maxX = Math.max(selectionStart.x, clampedX);
+          const minY = Math.min(selectionStart.y, clampedY);
+          const maxY = Math.max(selectionStart.y, clampedY);
+
+          if (e.shiftKey || e.altKey) {
+            const boxCells = new Set<string>();
+            for (let by = minY; by <= maxY; by++) {
+              for (let bx = minX; bx <= maxX; bx++) {
+                boxCells.add(`${bx},${by}`);
+              }
+            }
+            if (e.shiftKey) {
+              setSelection(unionSelection($selection, boxCells));
+            } else if (e.altKey) {
+              setSelection(subtractSelection($selection, boxCells));
+            }
+          } else {
+            setSelection({
+              x: minX,
+              y: minY,
+              width: maxX - minX + 1,
+              height: maxY - minY + 1
+            });
+          }
+        } else if (clearedSelectionOnClick) {
           clearSelection();
         }
         isSelecting = false;
@@ -749,6 +865,18 @@
         clearSelection();
         return;
       }
+    }
+
+    // Delete or Backspace deletes selected stitches on active layer
+    if ((e.key === 'Delete' || e.key === 'Backspace') && $selection) {
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+        return;
+      }
+      e.preventDefault();
+      deleteSelection();
+      redrawStitches();
+      return;
     }
 
     // Arrow keys nudge floating selection by 1 stitch
