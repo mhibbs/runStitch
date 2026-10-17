@@ -155,12 +155,35 @@ To ensure instant $O(1)$ lookups, low memory usage, and zero GC stutter during c
     * "Flatten All Visible Layers" action with atomic undo/redo snapshot support.
   * **Custom Stamp Organization**: Moved canvas selection stamp saving exclusively to the "My Custom Stamps" tab in [MotifLibraryModal.svelte](file:///Users/mhibbs/Dropbox/Projects/XStitcher/src/lib/components/MotifLibraryModal.svelte).
 
-* **Milestone 5: Image-to-Pattern Digitizer** `[NEXT FOCUS]`
-  * Photo import modal with real-time dimension scaling (stitches or target Aida inches).
-  * Perceptual color quantization with CIEDE2000 matching to real DMC floss.
-  * Floyd-Steinberg and Atkinson dithering options with live side-by-side preview.
+* **Milestone 5: Reference Image Layers & DMC Image Digitizer** `[COMPLETED]`
+  * **Unified Reference Image Layer**:
+    * Integrated reference images directly into the native layer stack (`LayerType = 'image' | 'stitch'`), providing stack re-ordering (drawing stitches over or under photos), per-layer opacity control for tracing/fine-grained editing, visibility toggle, and locking.
+    * On-canvas interactive transform system with 60 FPS live rendering in `renderOverlay`: cyan dashed marching frame, 4 corner resize handles, 4 edge handles, top rotation node, and real-time dimension & angle badges.
+    * Canvas hit-testing supporting move dragging, corner/edge scaling (preserving aspect ratio with Shift or corner drag), 15° snap or free rotation.
+    * Floating on-canvas action pill when an image layer is active: `[⚡ Digitize to Stitches...]`, `[Rotate 90° CW]`, `[Fit to Canvas]`, and opacity slider.
+  * **Intelligent DMC Color Quantization & Digitizer Engine**:
+    * Perceptual color science: CIE $L^*a^*b^*$ conversion and Euclidean $\Delta E$ matching against the entire 491-color standard DMC catalog.
+    * Dynamic complexity estimation (`analyzeImageComplexity`): analyzes color variance, saturation, and entropy to automatically recommend optimal starting colors (e.g., 2–3 for monochrome line art, 6–8 for grayscale photos, and 18–24 for complex color photos).
+    * Median Cut color clustering in Lab space to find $K$ representative cluster centers mapped to unique DMC colors.
+    * Advanced dithering algorithms:
+      * *Atkinson* (Recommended for needlepoint: crisper details, diffuses $\frac{3}{4}$ error to eliminate muddy color bleeding).
+      * *Floyd-Steinberg* (Smooth photographic error diffusion for soft gradients).
+      * *None* (Posterized flat color blocks, ideal for clean pixel art).
+    * Background removal: Color keying with tolerance slider (0%–100%) and interactive on-preview pipette dropper, plus native alpha transparency support.
+    * Groundwork for physical cross-stitch photo recognition: high-contrast cell sampling, grid coordinate snapping, and contrast thresholds.
+  * **Dedicated Digitizer Modal (`DigitizerModal.svelte`)**:
+    * Multi-view live interactive preview: `Stitches`, `Split (Source / Stitches)`, and `Source`.
+    * Interactive color slider with dynamic auto-detection and quick preset pills (`4 Minimal`, `8 Icon`, `14 Medium`, `24 Detailed`, `28 Photo`).
+    * Extracted DMC thread list with swatches, DMC numbers, and thread names.
+    * Output layer options: create a new stitch layer or merge into active layer, with option to keep or hide the reference image layer.
+  * **Bundled Stock Samples for 1-Click Testing**:
+    * `Cool Cat in Sunglasses` (`/samples/cool_cat.jpg`): High-complexity colorful portrait with vibrant tones and patterns.
+    * `Retro Coffee Mug` (`/samples/retro_coffee.jpg`): Graphic illustration on solid white background for background removal testing.
+    * Integrated into "+ Image" dropdown in the Layers panel and File menu.
+  * **Desktop File Drag-and-Drop**:
+    * Dragging any image file (`PNG`, `JPG`, `WebP`, `SVG`) directly from the desktop/finder onto the window immediately loads it as an active reference image layer on the canvas.
 
-* **Milestone 6: Cross-Stitch Typography (Text Tool)**
+* **Milestone 6: Cross-Stitch Typography (Text Tool)** `[NEXT FOCUS]`
   * Pixel cross-stitch fonts (5px, 7px, 10px, backstitch cursive).
   * Interactive on-canvas text placement and typing.
 
@@ -174,28 +197,31 @@ To ensure instant $O(1)$ lookups, low memory usage, and zero GC stutter during c
 
 ```
 src/
-├── App.svelte                   # Shell, desktop layout, accordion sidebar, global shortcuts
+├── App.svelte                   # Shell, desktop layout, accordion sidebar, window drag-drop, global shortcuts
 ├── main.ts                      # App mount point & global styles
 ├── app.css                      # Tailwind & custom CSS utilities
 ├── lib/
 │   ├── types/
-│   │   └── index.ts             # Core interfaces (Stitch, Layer, MotifStamp, BorderConfig, etc.)
+│   │   └── index.ts             # Core interfaces (Stitch, Layer, ReferenceImage, DigitizerOptions, etc.)
 │   ├── stores/
-│   │   └── editorStore.ts       # Central Svelte stores (grid, layers, palette, undo/redo deltas, HUD bounds, stamps)
+│   │   └── editorStore.ts       # Central Svelte stores (grid, layers, palette, image transforms, digitizer)
 │   ├── engine/
-│   │   ├── renderer.ts          # 3-canvas rendering engine, sprite caching, grid lines, hover overlays
+│   │   ├── renderer.ts          # 3-canvas rendering engine, sprite caching, image layer rendering, transform handles
 │   │   ├── geometry.ts          # Bresenham line, rectangle, midpoint ellipse, aspect constraints
-│   │   └── borderGenerator.ts   # Perimeter and runner border repetition generator
+│   │   ├── borderGenerator.ts   # Perimeter and runner border repetition generator
+│   │   └── digitizer.ts         # CIE Lab matching, Median Cut palette, Atkinson/Floyd-Steinberg dithering
 │   ├── data/
 │   │   ├── dmcPalette.ts        # 491 standard DMC colors, Delta-E matching, starter palettes
-│   │   └── motifLibrary.ts      # Curated flourishes, accents, borders, 5px font, custom stamp persistence
+│   │   ├── motifLibrary.ts      # Curated flourishes, accents, borders, 5px font, custom stamp persistence
+│   │   └── sampleImages.ts      # Registry of bundled stock photos (Cool Cat, Retro Coffee)
 │   └── components/
 │       ├── Header.svelte        # Top navigation, project dimensions pill, quick actions
 │       ├── MenuBar.svelte       # Traditional Desktop menus (File, Edit, Design, View, Help)
 │       ├── Toolbar.svelte       # Drawing tools, Shape tools (L, R, U), Stamp & Border buttons
-│       ├── CanvasViewport.svelte# Multi-canvas interactive viewport, trackpad pinch/pan, 2-line HUD
+│       ├── CanvasViewport.svelte# Multi-canvas interactive viewport, image transforms, floating controls, 2-line HUD
 │       ├── PaletteDock.svelte   # Active swatches, color picker, +Add DMC catalog modal
-│       ├── LayerManager.svelte  # Layer list, opacity sliders, visibility, layer lock, move/merge
+│       ├── LayerManager.svelte  # Layer list, image badges, +Image dropdown, digitize button, reordering
+│       ├── DigitizerModal.svelte # Image-to-stitch digitization modal with live side-by-side preview & DMC controls
 │       ├── NewProjectModal.svelte # Canvas creation presets, custom dimensions, starter palettes
 │       ├── CanvasSizeModal.svelte # Preserving resize modal with center vs. top-left space allocation
 │       ├── ClearLayerModal.svelte # Styled confirmation dialog with stitch counts and Cmd+Z reminder
