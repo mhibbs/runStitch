@@ -3,7 +3,7 @@
   import { Keyboard, X } from 'lucide-svelte';
 
   const shortcutList = [
-    { key: 'V', desc: 'Move Tool (Drag selection or active layer)' },
+    { key: 'M', desc: 'Move Tool (Drag selection or active layer)' },
     { key: 'S', desc: 'Marquee Rectangular Selection' },
     { key: 'W', desc: 'Magic Wand (Flood / Contiguous Select)' },
     { key: 'Q', desc: 'Freehand Lasso Selection' },

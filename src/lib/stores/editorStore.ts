@@ -570,6 +570,11 @@ export const isMotifLibraryModalOpen = writable<boolean>(false);
 export const borderInitialMotif = writable<MotifStamp | null>(null);
 export const isTextModalOpen = writable<boolean>(false);
 export const editingTextLayerId = writable<string | null>(null);
+export const hideNonStitchLayers = writable<boolean>(false);
+
+export function toggleHideNonStitchLayers() {
+  hideNonStitchLayers.update(h => !h);
+}
 
 export type MeasurementUnit = 'in' | 'cm';
 export const measurementUnit = writable<MeasurementUnit>('in');
@@ -846,6 +851,55 @@ export function offsetLayerStitches(layerId: string, dx: number, dy: number) {
     }
     return l;
   }));
+}
+
+/**
+ * Commits a layer stitch move action with sparse undo/redo.
+ */
+export function commitLayerStitchesMove(
+  layerId: string,
+  initialStitches: Record<string, Stitch>,
+  finalStitches: Record<string, Stitch>
+) {
+  const currentLayers = get(layers);
+  const target = currentLayers.find(l => l.id === layerId);
+  if (!target) return;
+
+  const before: Record<string, Stitch | null> = {};
+  const after: Record<string, Stitch | null> = {};
+  const allKeys = new Set([...Object.keys(initialStitches), ...Object.keys(finalStitches)]);
+  let hasChange = false;
+
+  for (const k of allKeys) {
+    const sInit = initialStitches[k];
+    const sFinal = finalStitches[k];
+    if (!sInit && sFinal) {
+      before[k] = null;
+      after[k] = { ...sFinal };
+      hasChange = true;
+    } else if (sInit && !sFinal) {
+      before[k] = { ...sInit };
+      after[k] = null;
+      hasChange = true;
+    } else if (sInit && sFinal && (sInit.colorId !== sFinal.colorId || sInit.symbol !== sFinal.symbol)) {
+      before[k] = { ...sInit };
+      after[k] = { ...sFinal };
+      hasChange = true;
+    }
+  }
+
+  if (hasChange) {
+    undoStack.update(stack => [
+      ...stack.slice(-50),
+      {
+        description: 'Move Layer Stitches',
+        layerId,
+        before,
+        after
+      }
+    ]);
+    redoStack.set([]);
+  }
 }
 
 /**
@@ -1454,6 +1508,100 @@ export async function addReferenceImageLayer(
   return newId;
 }
 
+/**
+ * Helper to ensure a color exists in the palette and returns its palette ID.
+ */
+export function getOrAddPaletteColor(hex: string): number {
+  const currentPal = get(palette);
+  const existing = currentPal.find(p => p.hex.toLowerCase() === hex.toLowerCase());
+  if (existing) return existing.id;
+
+  let bestDMC = DMC_CATALOG[0];
+  let minDiff = Infinity;
+  const targetR = parseInt(hex.slice(1, 3), 16) || 0;
+  const targetG = parseInt(hex.slice(3, 5), 16) || 0;
+  const targetB = parseInt(hex.slice(5, 7), 16) || 0;
+  for (const d of DMC_CATALOG) {
+    const dr = parseInt(d.hex.slice(1, 3), 16) || 0;
+    const dg = parseInt(d.hex.slice(3, 5), 16) || 0;
+    const db = parseInt(d.hex.slice(5, 7), 16) || 0;
+    const diff = (targetR - dr) ** 2 + (targetG - dg) ** 2 + (targetB - db) ** 2;
+    if (diff < minDiff) {
+      minDiff = diff;
+      bestDMC = d;
+      if (diff === 0) break;
+    }
+  }
+  return addColorToPalette(bestDMC.code);
+}
+
+/**
+ * Computes live cross-stitch cells for a text layer given its configuration.
+ */
+export function computeTextLayerStitches(
+  textData: TextLayerData,
+  colorId: number,
+  gridWidth: number,
+  gridHeight: number
+): Record<string, Stitch> {
+  const canvas = rasterizeTextLayer(
+    textData.text,
+    textData.fontFamily,
+    textData.fontSize,
+    '#000000',
+    textData.bold,
+    textData.italic,
+    textData.align || 'left',
+    textData.lineHeight ?? 1.25,
+    textData.letterSpacing ?? 0
+  );
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return {};
+  const sampleW = canvas.width;
+  const sampleH = canvas.height;
+  let sampleData = ctx.getImageData(0, 0, sampleW, sampleH).data;
+
+  const rot = textData.rotation || 0;
+  if (rot % 360 !== 0) {
+    const rotCanvas = document.createElement('canvas');
+    rotCanvas.width = sampleW;
+    rotCanvas.height = sampleH;
+    const rCtx = rotCanvas.getContext('2d');
+    if (rCtx) {
+      rCtx.save();
+      rCtx.translate(sampleW / 2, sampleH / 2);
+      rCtx.rotate((rot * Math.PI) / 180);
+      rCtx.drawImage(canvas, -sampleW / 2, -sampleH / 2);
+      rCtx.restore();
+      sampleData = rCtx.getImageData(0, 0, sampleW, sampleH).data;
+    }
+  }
+
+  const stitchesMap: Record<string, Stitch> = {};
+  const originX = textData.x;
+  const originY = textData.y;
+
+  for (let y = 0; y < sampleH; y++) {
+    for (let x = 0; x < sampleW; x++) {
+      const idx = (y * sampleW + x) * 4;
+      const alpha = sampleData[idx + 3];
+      if (alpha > 70) {
+        const gx = originX + x;
+        const gy = originY + y;
+        if (gx >= -200 && gx < gridWidth + 200 && gy >= -200 && gy < gridHeight + 200) {
+          stitchesMap[`${gx},${gy}`] = {
+            colorId,
+            type: 'full'
+          };
+        }
+      }
+    }
+  }
+
+  return stitchesMap;
+}
+
 export function addTextLayer(config: {
   text: string;
   fontFamily: string;
@@ -1471,6 +1619,7 @@ export function addTextLayer(config: {
   const currentGrid = get(grid);
   const activeClr = get(activeColor);
   const color = config.color || activeClr.hex || '#000000';
+  const colorId = getOrAddPaletteColor(color);
 
   const { width: w, height: h } = measureTextDimensions(
     config.text,
@@ -1514,6 +1663,8 @@ export function addTextLayer(config: {
     letterSpacing: config.letterSpacing ?? 0
   };
 
+  const initialStitches = computeTextLayerStitches(textData, colorId, currentGrid.width, currentGrid.height);
+
   const newId = `layer-text-${Date.now()}`;
   const shortText = config.text.split('\n')[0].slice(0, 16);
   const name = `Text: "${shortText}${config.text.length > 16 ? '...' : ''}"`;
@@ -1525,7 +1676,7 @@ export function addTextLayer(config: {
     visible: true,
     locked: false,
     opacity: 1.0,
-    stitches: {},
+    stitches: initialStitches,
     textData,
     image: {
       src: previewCanvas.toDataURL(),
@@ -1564,6 +1715,8 @@ export function updateTextLayer(layerId: string, updates: Partial<TextLayerData>
   if (!target || target.type !== 'text' || !target.textData) return;
 
   const merged: TextLayerData = { ...target.textData, ...updates };
+  const curGrid = get(grid);
+  const colorId = getOrAddPaletteColor(merged.color);
 
   const { width: w, height: h } = measureTextDimensions(
     merged.text,
@@ -1590,6 +1743,8 @@ export function updateTextLayer(layerId: string, updates: Partial<TextLayerData>
     merged.letterSpacing ?? 0
   );
 
+  const updatedStitches = computeTextLayerStitches(merged, colorId, curGrid.width, curGrid.height);
+
   const shortText = merged.text.split('\n')[0].slice(0, 16);
   const name = `Text: "${shortText}${merged.text.length > 16 ? '...' : ''}"`;
 
@@ -1598,6 +1753,7 @@ export function updateTextLayer(layerId: string, updates: Partial<TextLayerData>
       return {
         ...l,
         name,
+        stitches: updatedStitches,
         textData: merged,
         image: {
           src: previewCanvas.toDataURL(),
@@ -1637,89 +1793,45 @@ export function closeTextModal() {
   editingTextLayerId.set(null);
 }
 
-export function quickDigitizeTextLayer(layerId: string) {
+/**
+ * Permanently rasterizes/flattens a text layer into a normal stitch layer (Photoshop style).
+ */
+export function rasterizeTextLayerToStitches(layerId: string) {
   const currentLayers = get(layers);
   const target = currentLayers.find(l => l.id === layerId);
-  if (!target || target.type !== 'text' || !target.textData) return;
+  if (!target || target.type !== 'text') return;
 
-  // Rasterize text at 1:1 cell scale
-  const canvas = rasterizeTextLayer(
-    target.textData.text,
-    target.textData.fontFamily,
-    target.textData.fontSize,
-    '#000000',
-    target.textData.bold,
-    target.textData.italic,
-    target.textData.align || 'left',
-    target.textData.lineHeight ?? 1.25,
-    target.textData.letterSpacing ?? 0
-  );
+  const shortText = target.textData?.text ? target.textData.text.split('\n')[0].slice(0, 16) : 'Text';
+  const newName = target.name.startsWith('Text:') ? `Stitches: "${shortText}"` : target.name;
 
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  const sampleW = canvas.width;
-  const sampleH = canvas.height;
-  let sampleData = ctx.getImageData(0, 0, sampleW, sampleH).data;
-
-  const rot = target.textData.rotation || 0;
-  if (rot % 360 !== 0) {
-    const rotCanvas = document.createElement('canvas');
-    rotCanvas.width = sampleW;
-    rotCanvas.height = sampleH;
-    const rCtx = rotCanvas.getContext('2d');
-    if (rCtx) {
-      rCtx.save();
-      rCtx.translate(sampleW / 2, sampleH / 2);
-      rCtx.rotate((rot * Math.PI) / 180);
-      rCtx.drawImage(canvas, -sampleW / 2, -sampleH / 2);
-      rCtx.restore();
-      sampleData = rCtx.getImageData(0, 0, sampleW, sampleH).data;
+  const g = get(grid);
+  const prunedStitches: Record<string, Stitch> = {};
+  for (const [key, stitch] of Object.entries(target.stitches)) {
+    const [x, y] = key.split(',').map(Number);
+    if (x >= 0 && x < g.width && y >= 0 && y < g.height) {
+      prunedStitches[key] = stitch;
     }
   }
 
-  const curColorId = get(selectedColorId);
-  const stitchesMap: Record<string, Stitch> = {};
-  const originX = target.textData.x;
-  const originY = target.textData.y;
-  const curGrid = get(grid);
-
-  for (let y = 0; y < sampleH; y++) {
-    for (let x = 0; x < sampleW; x++) {
-      const idx = (y * sampleW + x) * 4;
-      const alpha = sampleData[idx + 3];
-      if (alpha > 70) {
-        const gx = originX + x;
-        const gy = originY + y;
-        if (gx >= 0 && gx < curGrid.width && gy >= 0 && gy < curGrid.height) {
-          stitchesMap[`${gx},${gy}`] = {
-            colorId: curColorId,
-            type: 'full'
-          };
-        }
-      }
+  layers.update(ls => ls.map(l => {
+    if (l.id === layerId) {
+      return {
+        ...l,
+        name: newName,
+        type: 'stitch',
+        stitches: prunedStitches,
+        textData: undefined,
+        image: undefined
+      };
     }
-  }
-
-  const newId = `layer-stitch-${Date.now()}`;
-  const shortText = target.textData.text.split('\n')[0].slice(0, 16);
-  const newStitchLayer: Layer = {
-    id: newId,
-    name: `Stitched: "${shortText}"`,
-    type: 'stitch',
-    visible: true,
-    locked: false,
-    opacity: 1.0,
-    stitches: stitchesMap
-  };
-
-  layers.set([...currentLayers, newStitchLayer]);
-  activeLayerId.set(newId);
+    return l;
+  }));
 
   undoStack.update(u => [
     ...u,
     {
-      description: `Digitize Text "${shortText}"`,
-      layerId: newId,
+      description: `Rasterize Text Layer "${shortText}"`,
+      layerId,
       before: {},
       after: {},
       layersSnapshot: currentLayers
@@ -1728,7 +1840,12 @@ export function quickDigitizeTextLayer(layerId: string) {
   redoStack.set([]);
 }
 
+export function quickDigitizeTextLayer(layerId: string) {
+  rasterizeTextLayerToStitches(layerId);
+}
+
 export function updateImageLayer(layerId: string, updates: Partial<ReferenceImage>) {
+  const curGrid = get(grid);
   layers.update(ls => ls.map(l => {
     if (l.id === layerId && l.image) {
       const updatedImage = { ...l.image, ...updates };
@@ -1740,9 +1857,17 @@ export function updateImageLayer(layerId: string, updates: Partial<ReferenceImag
         height: updatedImage.height,
         rotation: updatedImage.rotation
       } : undefined;
+
+      let updatedStitches = l.stitches;
+      if (updatedTextData) {
+        const colorId = getOrAddPaletteColor(updatedTextData.color);
+        updatedStitches = computeTextLayerStitches(updatedTextData, colorId, curGrid.width, curGrid.height);
+      }
+
       return {
         ...l,
         image: updatedImage,
+        stitches: updatedStitches,
         ...(updatedTextData ? { textData: updatedTextData } : {})
       };
     }

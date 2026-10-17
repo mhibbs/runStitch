@@ -14,10 +14,16 @@
     fabricColor
   } from '../stores/editorStore';
   import {
+    DEFAULT_CURATED_FONTS,
+    EXTENDED_FONTS,
     CURATED_FONTS,
     FONT_CATEGORIES,
     preloadAllCuratedFonts,
     loadGoogleFont,
+    loadCustomFontFile,
+    favoriteFontFamilies,
+    toggleFavoriteFont,
+    customUploadedFonts,
     measureTextDimensions,
     rasterizeTextLayer,
     fontsReadyTrigger,
@@ -34,11 +40,15 @@
     AlignCenter,
     AlignRight,
     ZoomIn,
-    ZoomOut
+    ZoomOut,
+    ChevronDown,
+    Star,
+    Upload,
+    Search
   } from 'lucide-svelte';
 
   let text = 'Stitched with Love';
-  let selectedFontFamily = CURATED_FONTS[0].family;
+  let selectedFontFamily = DEFAULT_CURATED_FONTS[0].family;
   let customFontInput = '';
   let fontSize = 16;
   let isBold = false;
@@ -46,6 +56,9 @@
   let alignment: 'left' | 'center' | 'right' = 'center';
   let chosenColorHex = $activeColor.hex || '#000000';
   let isFontLoading = false;
+  let isFontDropdownOpen = false;
+  let fontSearchQuery = '';
+  let fileUploadInputEl: HTMLInputElement;
 
   // Preview Mode: 'stitched' shows actual pixelated DMC stitches; 'smooth' shows vector font
   let previewType: 'stitched' | 'smooth' = 'stitched';
@@ -69,7 +82,8 @@
         alignment = target.textData.align || 'center';
         chosenColorHex = target.textData.color;
 
-        const match = CURATED_FONTS.find(f => f.family.toLowerCase() === target.textData?.fontFamily.toLowerCase());
+        const match = CURATED_FONTS.find(f => f.family.toLowerCase() === target.textData?.fontFamily.toLowerCase())
+          || $customUploadedFonts.find(f => f.family.toLowerCase() === target.textData?.fontFamily.toLowerCase());
         if (match) {
           selectedFontFamily = match.family;
           customFontInput = '';
@@ -84,7 +98,7 @@
   }
 
   // Active family
-  $: currentFamily = (selectedFontFamily === 'custom' ? customFontInput.trim() : selectedFontFamily) || CURATED_FONTS[0].family;
+  $: currentFamily = (selectedFontFamily === 'custom' ? customFontInput.trim() : selectedFontFamily) || DEFAULT_CURATED_FONTS[0].family;
 
   // Load font dynamically if custom or not yet cached
   $: {
@@ -102,13 +116,29 @@
   $: inchWidth = (dimensions.width / $grid.fabricCount).toFixed(1);
   $: inchHeight = (dimensions.height / $grid.fabricCount).toFixed(1);
 
-  // Re-render stitch preview when any parameter changes
+  // Re-render stitch preview when any parameter changes, including previewZoom
   $: if (
     previewCanvasEl &&
     previewType === 'stitched' &&
-    (text || currentFamily || fontSize || isBold || isItalic || chosenColorHex || alignment || $fabricColor || $fontsReadyTrigger)
+    (text || currentFamily || fontSize || isBold || isItalic || chosenColorHex || alignment || $fabricColor || $fontsReadyTrigger || previewZoom)
   ) {
     renderStitchPreview();
+  }
+
+  async function handleFontFileUpload(e: Event) {
+    const input = e.target as HTMLInputElement;
+    if (input.files && input.files[0]) {
+      const file = input.files[0];
+      try {
+        const loadedName = await loadCustomFontFile(file);
+        selectedFontFamily = loadedName;
+        customFontInput = '';
+        isFontDropdownOpen = false;
+        renderStitchPreview();
+      } catch (err) {
+        console.error('Failed to load custom font:', err);
+      }
+    }
   }
 
   function renderStitchPreview() {
@@ -133,9 +163,9 @@
 
     const imgData = rCtx.getImageData(0, 0, rW, rH).data;
 
-    // Determine scale for display cells (e.g. 8px - 14px per stitch cell)
-    const baseCell = Math.max(7, Math.min(16, Math.floor(220 / Math.max(rH, 1))));
-    const cellSize = Math.round(baseCell * previewZoom);
+    // Fixed natural stitch cell size (11px * previewZoom).
+    // Smaller font size = smaller stitch cells, fitting MORE text across the preview!
+    const cellSize = Math.max(4, Math.round(11 * previewZoom));
 
     previewCanvasEl.width = rW * cellSize;
     previewCanvasEl.height = rH * cellSize;
@@ -293,45 +323,192 @@
             ></textarea>
           </div>
 
-          <!-- Font Family Dropdown -->
-          <div>
+          <!-- Font Family Custom Dropdown with Real Typeface Previews -->
+          <div class="relative">
             <div class="flex items-center justify-between mb-1.5">
-              <label for="font-select" class="text-xs font-semibold uppercase tracking-wider text-gray-400">
+              <span class="text-xs font-semibold uppercase tracking-wider text-gray-400">
                 Font Family
-              </label>
+              </span>
               {#if isFontLoading}
                 <span class="text-[11px] text-indigo-400 animate-pulse">Loading font...</span>
               {/if}
             </div>
 
-            <select
-              id="font-select"
-              bind:value={selectedFontFamily}
-              class="w-full bg-[#242432] border border-gray-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 cursor-pointer shadow-inner"
+            <!-- Custom Dropdown Trigger Button -->
+            <button
+              type="button"
+              class="w-full bg-[#242432] hover:bg-[#2a2a3a] border border-gray-700 hover:border-indigo-500 rounded-xl px-3 py-2 text-left flex items-center justify-between transition-colors shadow-inner cursor-pointer"
+              on:click={() => (isFontDropdownOpen = !isFontDropdownOpen)}
             >
-              {#each FONT_CATEGORIES as category}
-                <optgroup label="── {category.label} ──">
-                  {#each CURATED_FONTS.filter(f => f.category === category.id) as font}
-                    <option value={font.family}>
-                      {font.name} ({font.description})
-                    </option>
-                  {/each}
-                </optgroup>
-              {/each}
-              <optgroup label="── Custom ──">
-                <option value="custom">Custom Google Font...</option>
-              </optgroup>
-            </select>
+              <div class="flex items-center space-x-2.5 truncate">
+                <span class="text-xs font-medium text-white truncate">{currentFamily}</span>
+                <span
+                  class="text-xs text-indigo-300 opacity-90 truncate max-w-[140px]"
+                  style="font-family: '{currentFamily}', sans-serif;"
+                >
+                  Aa Bb Cc 123
+                </span>
+              </div>
+              <ChevronDown size={14} class="text-gray-400 flex-shrink-0 transition-transform {isFontDropdownOpen ? 'rotate-180' : ''}" />
+            </button>
 
-            <!-- Custom Font Input (if selected or typed) -->
-            {#if selectedFontFamily === 'custom'}
-              <div class="mt-2">
-                <input
-                  type="text"
-                  bind:value={customFontInput}
-                  placeholder="Type any Google Font (e.g. Lobster, Orbitron, Pacifico)..."
-                  class="w-full bg-[#1e1e28] border border-indigo-500/60 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-400 shadow-inner"
-                />
+            <!-- Hidden File Input for Custom TTF/OTF Upload -->
+            <input
+              type="file"
+              accept=".ttf,.otf,.woff,.woff2"
+              class="hidden"
+              bind:this={fileUploadInputEl}
+              on:change={handleFontFileUpload}
+            />
+
+            <!-- Dropdown Menu Window -->
+            {#if isFontDropdownOpen}
+              <div
+                class="absolute left-0 right-0 top-full mt-1.5 bg-[#1c1c26] border border-indigo-500/50 rounded-xl shadow-2xl p-2.5 z-50 text-xs max-h-80 overflow-y-auto space-y-2 animate-fadeIn"
+              >
+                <!-- Search & Upload Bar -->
+                <div class="flex items-center space-x-1.5 pb-2 border-b border-gray-800">
+                  <div class="relative flex-1">
+                    <Search size={12} class="absolute left-2.5 top-2 text-gray-400" />
+                    <input
+                      type="text"
+                      bind:value={fontSearchQuery}
+                      placeholder="Filter fonts..."
+                      class="w-full bg-[#272736] border border-gray-700 rounded-lg pl-7 pr-2 py-1 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-400"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    class="px-2 py-1 rounded-lg bg-indigo-600/30 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/40 text-[11px] font-medium flex items-center space-x-1 transition-colors cursor-pointer flex-shrink-0"
+                    on:click={() => fileUploadInputEl?.click()}
+                    title="Upload local .ttf, .otf, or .woff font"
+                  >
+                    <Upload size={11} />
+                    <span>Upload Font</span>
+                  </button>
+                </div>
+
+                <!-- 1. Primary Default Curated Fonts (1 per Category) -->
+                <div>
+                  <div class="text-[10px] uppercase font-bold text-gray-400 px-1 py-1 flex items-center justify-between">
+                    <span>Default Curated Fonts (1 per Category)</span>
+                  </div>
+                  <div class="space-y-1">
+                    {#each DEFAULT_CURATED_FONTS.filter(f => !fontSearchQuery || f.name.toLowerCase().includes(fontSearchQuery.toLowerCase())) as font}
+                      <button
+                        type="button"
+                        class="w-full text-left group flex items-center justify-between px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer {selectedFontFamily === font.family ? 'bg-indigo-600 text-white' : 'hover:bg-[#282838] text-gray-200'}"
+                        on:click={() => { selectedFontFamily = font.family; isFontDropdownOpen = false; }}
+                      >
+                        <div class="flex items-center space-x-2 truncate">
+                          <span
+                            role="button"
+                            tabindex="0"
+                            class="text-gray-400 hover:text-amber-400 p-0.5 rounded cursor-pointer"
+                            on:click|stopPropagation={() => toggleFavoriteFont(font.family)}
+                            on:keydown|stopPropagation={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFavoriteFont(font.family); } }}
+                            title="Favorite font"
+                          >
+                            <Star size={12} class="{$favoriteFontFamilies.includes(font.family) ? 'fill-amber-400 text-amber-400' : ''}" />
+                          </span>
+                          <span class="font-medium text-xs">{font.name}</span>
+                          <span class="text-[10px] px-1.5 py-0.2 rounded bg-black/30 text-gray-400 uppercase font-mono">
+                            {font.category}
+                          </span>
+                        </div>
+                        <span
+                          class="text-sm font-normal text-right truncate max-w-[120px] opacity-90"
+                          style="font-family: '{font.family}', sans-serif;"
+                        >
+                          {font.sampleText}
+                        </span>
+                      </button>
+                    {/each}
+                  </div>
+                </div>
+
+                <!-- 2. User Uploaded Fonts (if any) -->
+                {#if $customUploadedFonts.length > 0}
+                  <div class="pt-1.5 border-t border-gray-800">
+                    <div class="text-[10px] uppercase font-bold text-cyan-400 px-1 py-0.5">Uploaded Custom Fonts</div>
+                    <div class="space-y-1">
+                      {#each $customUploadedFonts as font}
+                        <button
+                          type="button"
+                          class="w-full text-left flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#282838] text-gray-200 cursor-pointer {selectedFontFamily === font.family ? 'bg-cyan-700/80 text-white' : ''}"
+                          on:click={() => { selectedFontFamily = font.family; isFontDropdownOpen = false; }}
+                        >
+                          <span class="font-medium text-xs">{font.name}</span>
+                          <span
+                            class="text-sm font-normal text-right truncate max-w-[140px]"
+                            style="font-family: '{font.family}', sans-serif;"
+                          >
+                            AaBb 123
+                          </span>
+                        </button>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+
+                <!-- 3. Extended Google Fonts Catalog -->
+                <div class="pt-1.5 border-t border-gray-800">
+                  <div class="text-[10px] uppercase font-bold text-gray-400 px-1 py-0.5">More Google Fonts</div>
+                  <div class="space-y-1">
+                    {#each EXTENDED_FONTS.filter(f => !fontSearchQuery || f.name.toLowerCase().includes(fontSearchQuery.toLowerCase())) as font}
+                      <button
+                        type="button"
+                        class="w-full text-left flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#282838] text-gray-300 hover:text-white cursor-pointer {selectedFontFamily === font.family ? 'bg-indigo-600 text-white' : ''}"
+                        on:click={() => { selectedFontFamily = font.family; isFontDropdownOpen = false; }}
+                      >
+                        <div class="flex items-center space-x-2 truncate">
+                          <span
+                            role="button"
+                            tabindex="0"
+                            class="text-gray-400 hover:text-amber-400 p-0.5 rounded cursor-pointer"
+                            on:click|stopPropagation={() => toggleFavoriteFont(font.family)}
+                            on:keydown|stopPropagation={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFavoriteFont(font.family); } }}
+                            title="Favorite font"
+                          >
+                            <Star size={12} class="{$favoriteFontFamilies.includes(font.family) ? 'fill-amber-400 text-amber-400' : ''}" />
+                          </span>
+                          <span class="text-xs">{font.name}</span>
+                        </div>
+                        <span
+                          class="text-xs text-right truncate max-w-[120px] opacity-80"
+                          style="font-family: '{font.family}', sans-serif;"
+                        >
+                          {font.sampleText}
+                        </span>
+                      </button>
+                    {/each}
+                  </div>
+                </div>
+
+                <!-- 4. Custom Google Font Name Input -->
+                <div class="pt-2 border-t border-gray-800">
+                  <div class="text-[10px] uppercase font-bold text-gray-400 px-1 mb-1">Custom Google Font</div>
+                  <div class="flex items-center space-x-1.5">
+                    <input
+                      type="text"
+                      bind:value={customFontInput}
+                      placeholder="Type font name (e.g. Lobster, Pacifico)..."
+                      class="flex-1 bg-[#272736] border border-gray-700 rounded-lg px-2.5 py-1 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-400"
+                    />
+                    <button
+                      type="button"
+                      class="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium cursor-pointer"
+                      on:click={() => {
+                        if (customFontInput.trim()) {
+                          selectedFontFamily = 'custom';
+                          isFontDropdownOpen = false;
+                        }
+                      }}
+                    >
+                      Use
+                    </button>
+                  </div>
+                </div>
               </div>
             {/if}
           </div>
@@ -481,17 +658,17 @@
           </div>
 
           <!-- Preview Frame -->
-          <div class="flex-1 min-h-[300px] max-h-[440px] bg-[#0E0E14] border border-gray-800 rounded-xl overflow-auto p-4 flex items-center justify-center relative shadow-inner">
+          <div class="flex-1 min-h-[300px] max-h-[440px] bg-[#0E0E14] border border-gray-800 rounded-xl overflow-auto p-4 relative shadow-inner flex">
             {#if previewType === 'stitched'}
-              <div class="overflow-auto max-w-full max-h-full flex items-center justify-center p-2">
+              <div class="m-auto w-fit h-fit p-2">
                 <canvas
                   bind:this={previewCanvasEl}
-                  class="rounded border border-gray-700/60 shadow-2xl"
+                  class="rounded border border-gray-700/60 shadow-2xl block"
                 ></canvas>
               </div>
             {:else}
               <!-- Smooth Vector Font Preview -->
-              <div class="text-center overflow-auto max-w-full p-4">
+              <div class="m-auto text-center p-4 max-w-full">
                 <div
                   class="inline-block transition-all"
                   style="

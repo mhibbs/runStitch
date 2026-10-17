@@ -577,24 +577,27 @@
           <!-- Preview Frame (with Pan & Zoom Support) -->
           <div
             bind:this={previewContainerEl}
-            class="relative flex-1 min-h-[340px] max-h-[460px] bg-[#0E0E12] rounded-xl border border-gray-800 overflow-auto flex items-center justify-center p-4 {previewZoom > 1 ? (isPanningPreview ? 'cursor-grabbing' : 'cursor-grab') : ''}"
+            class="relative flex-1 min-h-[340px] max-h-[460px] bg-[#0E0E12] rounded-xl border border-gray-800 overflow-auto p-4 flex {previewZoom > 1 ? (isPanningPreview ? 'cursor-grabbing' : 'cursor-grab') : ''}"
             on:pointerdown={handlePreviewPointerDown}
             on:pointermove={handlePreviewPointerMove}
             on:pointerup={handlePreviewPointerUp}
+            on:pointercancel={handlePreviewPointerUp}
           >
             {#if !isImageLoaded}
-              <div class="flex flex-col items-center space-y-2 text-gray-500">
+              <div class="m-auto flex flex-col items-center space-y-2 text-gray-500">
                 <span class="animate-spin text-cyan-400">⏳</span>
                 <span class="text-xs">Loading image...</span>
               </div>
             {:else}
-              <canvas
-                bind:this={previewCanvas}
-                class="rounded shadow-xl object-contain {previewZoom <= 1 ? 'max-w-full max-h-full' : ''} {isPickingBgColor ? 'cursor-crosshair' : (previewZoom > 1 ? (isPanningPreview ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default')}"
-                style={previewZoom > 1 && previewCanvas ? `width: ${previewCanvas.width}px; height: ${previewCanvas.height}px; flex-shrink: 0;` : ''}
-                on:click={handleCanvasClick}
-                on:pointerleave={handleCanvasPointerLeave}
-              ></canvas>
+              <div class="m-auto w-fit h-fit flex-shrink-0">
+                <canvas
+                  bind:this={previewCanvas}
+                  class="rounded shadow-xl object-contain block {previewZoom <= 1 ? 'max-w-full max-h-full' : ''} {isPickingBgColor ? 'cursor-crosshair' : (previewZoom > 1 ? (isPanningPreview ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default')}"
+                  style={previewZoom > 1 && previewCanvas ? `width: ${previewCanvas.width}px; height: ${previewCanvas.height}px; flex-shrink: 0;` : ''}
+                  on:click={handleCanvasClick}
+                  on:pointerleave={handleCanvasPointerLeave}
+                ></canvas>
+              </div>
             {/if}
 
             {#if isPickingBgColor}

@@ -251,15 +251,16 @@
           }
           e.preventDefault();
           break;
-        case 'v': // Move Tool (Photoshop/Illustrator standard) OR Flip Floating/Stamp Vertically
+        case 'm': // Move Tool (M for Move)
+          activeTool.set('move');
+          e.preventDefault();
+          break;
+        case 'v': // Flip Floating Selection or Stamp Vertically
           if ($floatingSelection) {
             flipVertical();
             e.preventDefault();
           } else if ($activeTool === 'stamp' && $activeStamp) {
             flipActiveStampVertical();
-            e.preventDefault();
-          } else {
-            activeTool.set('move');
             e.preventDefault();
           }
           break;

@@ -11,7 +11,10 @@
     flattenAllLayers,
     addReferenceImageLayer,
     openDigitizerForLayer,
-    openTextModal
+    openTextModal,
+    hideNonStitchLayers,
+    toggleHideNonStitchLayers,
+    rasterizeTextLayerToStitches
   } from '../stores/editorStore';
   import { SAMPLE_IMAGES } from '../data/sampleImages';
   import {
@@ -239,6 +242,20 @@
         </button>
       {/if}
 
+      <!-- Toggle Hide/Show Non-Stitch Layers (Reference Images & Text) -->
+      <button
+        type="button"
+        class="p-1 rounded transition-colors {$hideNonStitchLayers ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'text-gray-400 hover:text-white hover:bg-[#323242]'}"
+        on:click={toggleHideNonStitchLayers}
+        title={$hideNonStitchLayers ? 'Show Reference & Text Layers' : 'Hide Reference & Text Layers (Pure Stitches Mode)'}
+      >
+        {#if $hideNonStitchLayers}
+          <EyeOff size={13} />
+        {:else}
+          <Eye size={13} />
+        {/if}
+      </button>
+
       <div class="w-px h-3.5 bg-gray-700 mx-0.5"></div>
 
       <!-- Unified New Layer Split Button with Dropdown -->
@@ -263,7 +280,7 @@
 
         {#if showNewLayerMenu}
           <div
-            class="absolute right-0 top-full mt-1.5 w-56 bg-[#23232e] border border-indigo-500/40 rounded-xl shadow-2xl py-1.5 text-xs text-gray-200 z-50 animate-fadeIn"
+            class="absolute right-0 top-full mt-1.5 w-56 max-h-[min(360px,calc(100vh-140px))] overflow-y-auto bg-[#23232e] border border-indigo-500/40 rounded-xl shadow-2xl py-1.5 text-xs text-gray-200 z-50 animate-fadeIn"
             role="menu"
             tabindex="-1"
           >
@@ -467,8 +484,8 @@
             <button
               type="button"
               class="p-1 rounded bg-purple-900/60 hover:bg-purple-600 text-purple-200 hover:text-white border border-purple-500/30 transition-all cursor-pointer mr-0.5"
-              on:click|stopPropagation={() => openDigitizerForLayer(layer.id)}
-              title="Digitize text into DMC stitches"
+              on:click|stopPropagation={() => rasterizeTextLayerToStitches(layer.id)}
+              title="Rasterize to Stitches - flatten to standard editable stitch layer (Photoshop style)"
             >
               <Sparkles size={11} />
             </button>

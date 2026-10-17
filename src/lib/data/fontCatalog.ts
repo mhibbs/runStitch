@@ -20,17 +20,8 @@ export const FONT_CATEGORIES = [
   { id: 'modern', label: 'Modern Sans' }
 ] as const;
 
-export const CURATED_FONTS: CuratedFont[] = [
-  // 1. Craft & Stitching Motifs
-  {
-    name: 'Yarndings 12',
-    family: 'Yarndings 12',
-    category: 'craft',
-    description: 'Charming yarn, craft tools, and stitching motif symbols',
-    googleFontQuery: 'family=Yarndings+12',
-    sampleText: 'abcdefABCDEF',
-    suggestedSize: 18
-  },
+// 1 Curated Font per Category as the primary defaults requested by user
+export const DEFAULT_CURATED_FONTS: CuratedFont[] = [
   {
     name: 'Yarndings 20',
     family: 'Yarndings 20',
@@ -39,6 +30,55 @@ export const CURATED_FONTS: CuratedFont[] = [
     googleFontQuery: 'family=Yarndings+20',
     sampleText: 'abcdefghijk',
     suggestedSize: 20
+  },
+  {
+    name: 'Silkscreen',
+    family: 'Silkscreen',
+    category: 'pixel',
+    description: 'Crisp 8-bit geometric pixel typography',
+    googleFontQuery: 'family=Silkscreen:wght@400;700',
+    sampleText: 'CROSS STITCH',
+    suggestedSize: 12
+  },
+  {
+    name: 'Great Vibes',
+    family: 'Great Vibes',
+    category: 'script',
+    description: 'Flowing, graceful cursive sampler calligraphy',
+    googleFontQuery: 'family=Great+Vibes',
+    sampleText: 'Bless This Home',
+    suggestedSize: 24
+  },
+  {
+    name: 'Cinzel',
+    family: 'Cinzel',
+    category: 'sampler_serif',
+    description: 'Classical Roman proportions, iconic for heirloom samplers',
+    googleFontQuery: 'family=Cinzel:wght@400..700',
+    sampleText: 'SAMPLER 2026',
+    suggestedSize: 18
+  },
+  {
+    name: 'Comfortaa',
+    family: 'Comfortaa',
+    category: 'modern',
+    description: 'Friendly, rounded modern geometric letterforms',
+    googleFontQuery: 'family=Comfortaa:wght@400..700',
+    sampleText: 'Handmade with Love',
+    suggestedSize: 18
+  }
+];
+
+export const EXTENDED_FONTS: CuratedFont[] = [
+  // Craft
+  {
+    name: 'Yarndings 12',
+    family: 'Yarndings 12',
+    category: 'craft',
+    description: 'Charming yarn, craft tools, and stitching motif symbols',
+    googleFontQuery: 'family=Yarndings+12',
+    sampleText: 'abcdefABCDEF',
+    suggestedSize: 18
   },
   {
     name: 'Yarndings 20 Charted',
@@ -58,26 +98,7 @@ export const CURATED_FONTS: CuratedFont[] = [
     sampleText: 'Home Sweet Home',
     suggestedSize: 16
   },
-  {
-    name: 'Jacquarda Bastarda 9',
-    family: 'Jacquarda Bastarda 9',
-    category: 'craft',
-    description: 'Ancient textile blackletter gothic script',
-    googleFontQuery: 'family=Jacquarda+Bastarda+9',
-    sampleText: 'Anno Domini',
-    suggestedSize: 18
-  },
-
-  // 2. Pixel & Bitmap
-  {
-    name: 'Silkscreen',
-    family: 'Silkscreen',
-    category: 'pixel',
-    description: 'Crisp 8-bit geometric pixel typography',
-    googleFontQuery: 'family=Silkscreen:wght@400;700',
-    sampleText: 'LEVEL COMPLETE 100%',
-    suggestedSize: 12
-  },
+  // Pixel
   {
     name: 'Press Start 2P',
     family: 'Press Start 2P',
@@ -97,15 +118,6 @@ export const CURATED_FONTS: CuratedFont[] = [
     suggestedSize: 18
   },
   {
-    name: 'DotGothic16',
-    family: 'DotGothic16',
-    category: 'pixel',
-    description: 'Clean 16px digital dot-matrix lettering',
-    googleFontQuery: 'family=DotGothic16',
-    sampleText: 'Cross Stitch Studio',
-    suggestedSize: 16
-  },
-  {
     name: 'Pixelify Sans',
     family: 'Pixelify Sans',
     category: 'pixel',
@@ -114,17 +126,7 @@ export const CURATED_FONTS: CuratedFont[] = [
     sampleText: 'Handmade with Love',
     suggestedSize: 16
   },
-
-  // 3. Cursive & Sampler Scripts
-  {
-    name: 'Great Vibes',
-    family: 'Great Vibes',
-    category: 'script',
-    description: 'Flowing, graceful cursive sampler calligraphy',
-    googleFontQuery: 'family=Great+Vibes',
-    sampleText: 'Love & Joy Always',
-    suggestedSize: 24
-  },
+  // Script
   {
     name: 'Dancing Script',
     family: 'Dancing Script',
@@ -152,17 +154,7 @@ export const CURATED_FONTS: CuratedFont[] = [
     sampleText: 'Stitched for You',
     suggestedSize: 22
   },
-
-  // 4. Classical Sampler Serifs
-  {
-    name: 'Cinzel',
-    family: 'Cinzel',
-    category: 'sampler_serif',
-    description: 'Classical Roman proportions, iconic for heirloom samplers',
-    googleFontQuery: 'family=Cinzel:wght@400..700',
-    sampleText: 'ABCDEF • 2026',
-    suggestedSize: 18
-  },
+  // Serif
   {
     name: 'Playfair Display',
     family: 'Playfair Display',
@@ -173,15 +165,6 @@ export const CURATED_FONTS: CuratedFont[] = [
     suggestedSize: 20
   },
   {
-    name: 'Marcellus',
-    family: 'Marcellus',
-    category: 'sampler_serif',
-    description: 'Refined Roman inscription capitals',
-    googleFontQuery: 'family=Marcellus',
-    sampleText: 'IN GOD WE TRUST',
-    suggestedSize: 18
-  },
-  {
     name: 'MedievalSharp',
     family: 'MedievalSharp',
     category: 'sampler_serif',
@@ -190,17 +173,7 @@ export const CURATED_FONTS: CuratedFont[] = [
     sampleText: 'Once Upon A Time',
     suggestedSize: 18
   },
-
-  // 5. Modern Clean Sans
-  {
-    name: 'Comfortaa',
-    family: 'Comfortaa',
-    category: 'modern',
-    description: 'Friendly, rounded modern geometric letterforms',
-    googleFontQuery: 'family=Comfortaa:wght@400..700',
-    sampleText: 'Simply Beautiful',
-    suggestedSize: 18
-  },
+  // Modern
   {
     name: 'Outfit',
     family: 'Outfit',
@@ -221,7 +194,69 @@ export const CURATED_FONTS: CuratedFont[] = [
   }
 ];
 
+export const CURATED_FONTS: CuratedFont[] = [
+  ...DEFAULT_CURATED_FONTS,
+  ...EXTENDED_FONTS
+];
+
 import { writable } from 'svelte/store';
+
+export interface UserUploadedFont {
+  name: string;
+  family: string;
+  format: string;
+}
+
+export const customUploadedFonts = writable<UserUploadedFont[]>([]);
+export const favoriteFontFamilies = writable<string[]>(loadInitialFavorites());
+
+function loadInitialFavorites(): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem('xstitcher_favorite_fonts');
+    return raw ? JSON.parse(raw) : ['Comfortaa', 'Cinzel', 'Silkscreen'];
+  } catch {
+    return ['Comfortaa', 'Cinzel', 'Silkscreen'];
+  }
+}
+
+export function toggleFavoriteFont(family: string) {
+  favoriteFontFamilies.update(favs => {
+    const next = favs.includes(family)
+      ? favs.filter(f => f !== family)
+      : [...favs, family];
+    try {
+      localStorage.setItem('xstitcher_favorite_fonts', JSON.stringify(next));
+    } catch (_) {}
+    return next;
+  });
+}
+
+/**
+ * Loads a user-provided font file (.ttf, .otf, .woff, .woff2) into the browser FontFace set.
+ */
+export async function loadCustomFontFile(file: File): Promise<string> {
+  const cleanName = file.name
+    .replace(/\.[^/.]+$/, '')
+    .replace(/[^a-zA-Z0-9_\- ]/g, '')
+    .trim() || 'CustomFont';
+  
+  const ext = file.name.split('.').pop()?.toLowerCase() || 'ttf';
+  const buffer = await file.arrayBuffer();
+
+  const fontFace = new FontFace(cleanName, buffer);
+  await fontFace.load();
+  document.fonts.add(fontFace);
+  LOADED_FONTS.add(cleanName);
+
+  customUploadedFonts.update(list => {
+    if (list.some(f => f.family.toLowerCase() === cleanName.toLowerCase())) return list;
+    return [...list, { name: cleanName, family: cleanName, format: ext }];
+  });
+
+  fontsReadyTrigger.update(n => n + 1);
+  return cleanName;
+}
 
 export const fontsReadyTrigger = writable<number>(0);
 const LOADED_FONTS = new Set<string>();

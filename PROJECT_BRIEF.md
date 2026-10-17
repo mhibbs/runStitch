@@ -202,36 +202,25 @@ To ensure instant $O(1)$ lookups, low memory usage, and zero GC stutter during c
     * Instant global pattern conversion: convert all current colors to the closest perceptual $\Delta E$ match in any target brand across all stitches with full undo/redo history.
     * Thread Color Swapping: select any color in the active palette and swap it with any thread from any catalog across the entire project in a single undoable step.
 
-* **Milestone 6: Cross-Stitch Typography (Text Tool & Google Fonts)** `[COMPLETED]`
-  * **Dedicated Text Layer Architecture (`LayerType = 'text'`)**:
-    * Integrated directly into the native layer stack alongside stitch and reference image layers.
-    * Text layers preserve editable typographic parameters: text content, font family, font size (in stitches), thread color swatch, bold, italic, line height, letter spacing, alignment, position `(x, y)`, and rotation.
-    * Real-time canvas rendering: rendered directly on canvas with transform bounding frames, corner/side-middle scaling handles, and rotation pin.
-    * Dual compatibility: automatically rasterizes to an offscreen canvas data URL matching the transform renderer, enabling on-canvas border dragging, rotation, and seamless integration with the DMC digitizer engine.
-  * **Curated Font Catalog & Google WebFont Loader (`fontCatalog.ts`)**:
-    * Background preloader (`preloadAllCuratedFonts`): bundles all curated Google Fonts in a single initial stylesheet request so font dropdowns and live previews render in their actual typefaces immediately without defaulting to browser sans-serif.
-    * 5 specialized cross-stitch categories:
-      * **Craft & Motifs**: *Yarndings 12*, *Yarndings 20*, *Yarndings 20 Charted* (authentic cross-stitch chart symbols, embroidery tools, yarn skeins, and crafting motifs typed directly as characters), *Jacquard 12*, *Jacquarda Bastarda 9*.
-      * **Pixel & 8-Bit**: *Silkscreen*, *Press Start 2P*, *VT323*, *DotGothic16*, *Pixelify Sans*.
-      * **Cursive & Sampler Scripts**: *Great Vibes*, *Dancing Script*, *Pacifico*, *Caveat*.
-      * **Sampler Serifs**: *Cinzel* (classical Roman sampler proportions), *Playfair Display*, *Marcellus*, *MedievalSharp*.
-      * **Modern Sans**: *Comfortaa*, *Outfit*, *Bungee*.
-    * Custom Font input allows typing any valid Google Font family name with automatic asynchronous WebFont loading (`document.fonts.load`).
-  * **Interactive Typography Studio (`TextModal.svelte`)**:
-    * Grouped `<select>` dropdown menu with category optgroups, freeing space for a dedicated dual-mode live preview.
-    * **Live Pixelated Stitches Preview**: Renders an authentic cross-stitch chart on Aida cloth showing the exact pixelation/chunkiness at the chosen stitch height, with zoom controls and stitch counts.
-    * Direct palette swatch picker to match pattern thread colors.
-    * 1-Click "Digitize to Stitches" button converting text into stitches with active thread color, plus "Place Text Layer" to keep it editable.
-  * **Move Tool & Selection Dragging**:
-    * **Dedicated Move Tool (`V`)**: Photoshop/Illustrator standard for moving active layers or in-place selections.
-    * **In-Place Selection Drag**: Clicking inside an active marquee selection lifts the stitches into a floating selection in-place without jumping to the center of the screen. Hold Alt/Option to duplicate.
-    * **Invalid Tool Guard**: Shows `not-allowed` (🚫) cursor when hovering image/text layers with stitch-drawing tools (pencil, eraser, bucket, line, rectangle, ellipse).
-  * **UI & Studio Ergonomics**:
-    * **Unified "+ New" Split Dropdown**: Consolidated header buttons in LayerManager to a split button: 1-click new stitch layer or dropdown for Stitch, Text, and Reference Image layers.
-    * **Compact Row Icons**: Replaced verbose text buttons on layer rows with sleek `Edit2` and `Sparkles` icon buttons.
-    * **Dynamic Side Dock Width Resizer**: Draggable left border on the right panel allowing fluid resizing between 260px and 650px.
-    * **Left-Aligned Coordinate HUD**: Formats coordinates as `X:1  ,Y:999` with 3-character padding.
-    * **Digitizer Zoom & Pan**: Interactive zoom up to 400% with click-and-drag panning across the preview canvas.
+* **Milestone 6: Cross-Stitch Typography & Layer Ergonomics** `[COMPLETED]`
+  * **Dedicated Vector-to-Stitch Live Text Layers (`LayerType = 'text'`)**:
+    * **Live Cross-Stitch Canvas Rendering**: Text layers render live cross-stitches directly on the canvas in both Chart mode (with thread symbols) and Mockup mode (with realistic 3D thread sprites), eliminating separate digitization steps.
+    * **Dynamic Handle-Based Font Resizing**: Dragging transform handles scales `fontSize` in real time while maintaining vector text properties, alignment, and spacing.
+    * **Photoshop-Style Rasterization**: "Rasterize to Stitches" action converts text layers into normal editable stitch layers with sparse undo/redo history.
+    * **Double-Click to Edit**: Double-clicking on an active or hovered text layer directly on the canvas opens the typography editor immediately.
+  * **Non-Destructive Move Off-Canvas**:
+    * Dragging stitch layers or selections with Move Tool (`M`) shifts all original stitches non-destructively; stitches moving off-canvas are preserved during drag and only clipped on pointer release.
+    * Single atomic history delta recorded upon drop for instant undo/redo (`Cmd+Z`).
+  * **Typography Studio Redesign (`TextModal.svelte` & `fontCatalog.ts`)**:
+    * **Curated 1-Per-Category Defaults**: Fast, uncluttered font list featuring 1 primary typeface per category (*Yarndings 20*, *Silkscreen*, *Great Vibes*, *Cinzel*, *Comfortaa*), expandable to full Google catalog.
+    * **Custom Dropdown with Live Typeface Previews**: Live visual font rendering for each typeface in the selector.
+    * **Favorite Fonts & Local TTF/OTF Upload**: Star favorite fonts with `localStorage` persistence, plus upload custom font files (`.ttf`, `.otf`, `.woff`, `.woff2`) via browser `FontFace` API.
+    * **Accurate Stitch Preview Scaling**: Constant cell scaling ensures smaller font sizes render smaller stitches so more text fits into view; functional zoom controls.
+  * **Layer Manager & Workspace Ergonomics**:
+    * **Toggle Non-Stitch Layers**: Dedicated toggle button (`Eye` / `EyeOff`) next to copy/flatten to hide reference images and vector text layers for clean pattern and mockup inspection.
+    * **Bounded "+ New" Layer Dropdown**: Constrained dropdown height (`max-h-[min(360px,calc(100vh-140px))]`) preventing overflow past the bottom of the window.
+    * **Digitizer Pan-to-Left Fix**: Fixed negative scroll clamping on centered preview canvas, allowing full panning to the left edge when zoomed in.
+    * **Shortcut Remapping**: `M` mapped to Move Tool, `V` reserved strictly for vertical flip during floating selection and motif stamping.
 
 * **Milestone 7: Print-Ready PDF & Interchange Formats** `[NEXT FOCUS]`
   * Paginated PDF chart generation (black-and-white or color, with 10×10 numbered grids, floss keys, and skein estimators).

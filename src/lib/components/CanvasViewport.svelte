@@ -48,7 +48,13 @@
     fitImageLayerToCanvas,
     openDigitizerForLayer,
     setLayerOpacity,
-    toggleLayerVisibility
+    toggleLayerVisibility,
+    hideNonStitchLayers,
+    updateTextLayer,
+    openTextModal,
+    commitLayerStitchesMove,
+    undoStack,
+    redoStack
   } from '../stores/editorStore';
   import {
     renderBackground,
@@ -134,12 +140,14 @@
     height: 0,
     rotation: 0,
     pointerScreenX: 0,
-    pointerScreenY: 0
+    pointerScreenY: 0,
+    fontSize: 16
   };
 
-  // Move Tool stitch layer translation
+  // Move Tool stitch layer translation (non-destructive off-canvas drag)
   let isMovingStitchLayer = false;
   let moveStitchStartGrid = { x: 0, y: 0 };
+  let moveLayerInitialStitches: Record<string, Stitch> = {};
 
   // Marching ants animation loop
   let dashOffset = 0;
@@ -195,7 +203,7 @@
   function redrawAll() {
     if (!bgCtx || !stitchCtx || !overlayCtx) return;
     renderBackground(bgCtx, width, height, $viewport, $grid, $viewMode, $fabricColor);
-    renderStitches(stitchCtx, width, height, $viewport, $grid, $layers, $palette, $viewMode, $showGrid, redrawStitches);
+    renderStitches(stitchCtx, width, height, $viewport, $grid, $layers, $palette, $viewMode, $showGrid, redrawStitches, $hideNonStitchLayers);
     redrawOverlay();
   }
 
@@ -203,7 +211,7 @@
     if (!stitchCtx) return;
     renderStitches(stitchCtx, width, height, $viewport, $grid, $layers, $palette, $viewMode, $showGrid, () => {
       redrawStitches();
-    });
+    }, $hideNonStitchLayers);
   }
 
   function redrawOverlay() {
@@ -250,7 +258,7 @@
     renderBackground(bgCtx, width, height, $viewport, $grid, $viewMode, $fabricColor);
   }
 
-  $: if (stitchCtx && ($viewport || $grid || $layers || $palette || $viewMode || $showGrid)) {
+  $: if (stitchCtx && ($viewport || $grid || $layers || $palette || $viewMode || $showGrid || $hideNonStitchLayers !== undefined)) {
     redrawStitches();
   }
 
@@ -309,7 +317,8 @@
           height: $activeLayer.image.height,
           rotation: $activeLayer.image.rotation || 0,
           pointerScreenX: e.clientX,
-          pointerScreenY: e.clientY
+          pointerScreenY: e.clientY,
+          fontSize: $activeLayer.textData?.fontSize || 16
         };
         return;
       }
@@ -342,13 +351,15 @@
           height: $activeLayer.image.height,
           rotation: $activeLayer.image.rotation || 0,
           pointerScreenX: e.clientX,
-          pointerScreenY: e.clientY
+          pointerScreenY: e.clientY,
+          fontSize: $activeLayer.textData?.fontSize || 16
         };
         return;
       }
       if ($activeLayer && (!$activeLayer.type || $activeLayer.type === 'stitch')) {
         isMovingStitchLayer = true;
         moveStitchStartGrid = { x, y };
+        moveLayerInitialStitches = { ...$activeLayer.stitches };
         return;
       }
     }
@@ -496,8 +507,8 @@
       return;
     }
 
-    // Active Image Layer transformation
-    if (isTransformingImage && $activeLayer && $activeLayer.type === 'image' && $activeLayer.image && activeImageHandle) {
+    // Active Image or Text Layer transformation
+    if (isTransformingImage && $activeLayer && ($activeLayer.type === 'image' || $activeLayer.type === 'text') && $activeLayer.image && activeImageHandle) {
       const dxScreen = e.clientX - imageTransformStart.pointerScreenX;
       const dyScreen = e.clientY - imageTransformStart.pointerScreenY;
       const rect = containerEl.getBoundingClientRect();
@@ -584,12 +595,25 @@
           newY = imageTransformStart.y + (imageTransformStart.height - newH);
         }
 
-        updateImageLayer($activeLayer.id, {
-          x: newX,
-          y: newY,
-          width: newW,
-          height: newH
-        });
+        if ($activeLayer.type === 'text' && $activeLayer.textData) {
+          const scale = isCorner
+            ? Math.max(newW / Math.max(1, imageTransformStart.width), newH / Math.max(1, imageTransformStart.height))
+            : (['n', 's'].includes(activeImageHandle) ? newH / Math.max(1, imageTransformStart.height) : newW / Math.max(1, imageTransformStart.width));
+          const baseFontSize = imageTransformStart.fontSize || $activeLayer.textData.fontSize || 16;
+          const newFontSize = Math.max(6, Math.min(160, Math.round(baseFontSize * scale)));
+          updateTextLayer($activeLayer.id, {
+            fontSize: newFontSize,
+            x: newX,
+            y: newY
+          });
+        } else {
+          updateImageLayer($activeLayer.id, {
+            x: newX,
+            y: newY,
+            width: newW,
+            height: newH
+          });
+        }
       }
       return;
     }
@@ -629,15 +653,17 @@
       hoverCoord.set(null);
     }
 
-    // Moving stitch layer with Move Tool
+    // Moving stitch layer with Move Tool (non-destructive during drag: all original stitches shifted relative to start)
     if (isMovingStitchLayer && $activeLayer) {
-      const dx = x - moveStitchStartGrid.x;
-      const dy = y - moveStitchStartGrid.y;
-      if (dx !== 0 || dy !== 0) {
-        offsetLayerStitches($activeLayer.id, dx, dy);
-        moveStitchStartGrid = { x, y };
-        redrawStitches();
+      const totalDx = x - moveStitchStartGrid.x;
+      const totalDy = y - moveStitchStartGrid.y;
+      const updated: Record<string, Stitch> = {};
+      for (const [key, stitch] of Object.entries(moveLayerInitialStitches)) {
+        const [ox, oy] = key.split(',').map(Number);
+        updated[`${ox + totalDx},${oy + totalDy}`] = { ...stitch };
       }
+      layers.update(ls => ls.map(l => l.id === $activeLayer.id ? { ...l, stitches: updated } : l));
+      redrawStitches();
       return;
     }
 
@@ -700,7 +726,21 @@
     activePointers.delete(e.pointerId);
 
     if (activePointers.size === 0) {
-      isMovingStitchLayer = false;
+      if (isMovingStitchLayer && $activeLayer) {
+        const g = $grid;
+        const pruned: Record<string, Stitch> = {};
+        for (const [key, stitch] of Object.entries($activeLayer.stitches)) {
+          const [cx, cy] = key.split(',').map(Number);
+          if (cx >= 0 && cx < g.width && cy >= 0 && cy < g.height) {
+            pruned[key] = stitch;
+          }
+        }
+        layers.update(ls => ls.map(l => l.id === $activeLayer.id ? { ...l, stitches: pruned } : l));
+        commitLayerStitchesMove($activeLayer.id, moveLayerInitialStitches, pruned);
+        isMovingStitchLayer = false;
+        moveLayerInitialStitches = {};
+        redrawStitches();
+      }
       if (isTransformingImage) {
         isTransformingImage = false;
         activeImageHandle = null;
@@ -841,6 +881,22 @@
       panX: Math.round(v.panX - e.deltaX),
       panY: Math.round(v.panY - e.deltaY)
     }));
+  }
+
+  function handleDblClick(e: MouseEvent) {
+    if ($activeLayer && $activeLayer.type === 'text') {
+      openTextModal($activeLayer.id);
+      return;
+    }
+    const { x, y } = screenToGrid(e.clientX, e.clientY);
+    const key = `${x},${y}`;
+    for (const l of $layers) {
+      if (l.type === 'text' && (l.stitches[key] || (l.image && x >= l.image.x && x < l.image.x + l.image.width && y >= l.image.y && y < l.image.y + l.image.height))) {
+        activeLayerId.set(l.id);
+        openTextModal(l.id);
+        return;
+      }
+    }
   }
 
   let showZoomMenu = false;
@@ -1036,6 +1092,8 @@
 
 <div
   bind:this={containerEl}
+  role="region"
+  aria-label="Cross-stitch Canvas Workspace"
   class="relative w-full h-full overflow-hidden bg-[#121216] cursor-crosshair touch-none select-none"
   class:cursor-grab={isSpacePressed || $activeTool === 'pan'}
   class:cursor-grabbing={isPanning}
@@ -1046,6 +1104,7 @@
   on:pointercancel={handlePointerUp}
   on:pointerleave={() => hoverCoord.set(null)}
   on:wheel={handleWheel}
+  on:dblclick={handleDblClick}
 >
   <!-- Background Fabric Canvas -->
   <canvas bind:this={bgCanvas} class="absolute inset-0 pointer-events-none"></canvas>

@@ -147,7 +147,8 @@ export function renderStitches(
   palette: PaletteColor[],
   viewMode: ViewMode,
   showGrid: boolean,
-  onImageLoaded?: () => void
+  onImageLoaded?: () => void,
+  hideNonStitch: boolean = false
 ) {
   ctx.save();
   ctx.clearRect(0, 0, width, height);
@@ -160,11 +161,11 @@ export function renderStitches(
     paletteMap.set(c.id, c);
   }
 
-  // Calculate visible range of cells (viewport culling)
-  const startX = Math.max(0, Math.floor(-panX / zoom));
-  const endX = Math.min(grid.width, Math.ceil((width - panX) / zoom));
-  const startY = Math.max(0, Math.floor(-panY / zoom));
-  const endY = Math.min(grid.height, Math.ceil((height - panY) / zoom));
+  // Calculate visible range of cells with generous margin so off-canvas stitches during drags remain visible
+  const startX = Math.max(-200, Math.floor(-panX / zoom));
+  const endX = Math.min(grid.width + 200, Math.ceil((width - panX) / zoom));
+  const startY = Math.max(-200, Math.floor(-panY / zoom));
+  const endY = Math.min(grid.height + 200, Math.ceil((height - panY) / zoom));
 
   // Render layers in stack order
   for (const layer of layers) {
@@ -172,8 +173,9 @@ export function renderStitches(
 
     ctx.globalAlpha = layer.opacity;
 
-    // 1. Reference Image & Text Layers (rendered via rasterized image)
-    if ((layer.type === 'image' || layer.type === 'text') && layer.image) {
+    // 1. Reference Image Layer (skipped if hideNonStitch is toggled on)
+    if (layer.type === 'image' && layer.image) {
+      if (hideNonStitch) continue;
       const img = getCachedImageElement(layer.image.src, onImageLoaded);
       if (img) {
         const { x, y, width: iw, height: ih, rotation = 0 } = layer.image;
@@ -197,7 +199,13 @@ export function renderStitches(
       continue;
     }
 
-    // 2. Stitch Layer
+    // Text layers are skipped if hideNonStitch is active
+    if (layer.type === 'text' && hideNonStitch) {
+      continue;
+    }
+
+    // 2. Stitch Layer & Text Layer Stitches
+    // Renders actual stitches in both Chart view (with symbols) and Mockup view (with realistic thread sprites)
 
     for (let y = startY; y < endY; y++) {
       for (let x = startX; x < endX; x++) {
@@ -435,6 +443,25 @@ export function renderOverlay(
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(badgeText, 0, badgeY + 11);
+
+    // Vector Typography Guide Overlay for Active Text Layers
+    if (activeImageLayer.type === 'text' && activeImageLayer.textData) {
+      const td = activeImageLayer.textData;
+      ctx.save();
+      ctx.globalAlpha = 0.22;
+      const fontPx = td.fontSize * zoom;
+      ctx.font = `${td.italic ? 'italic ' : ''}${td.bold ? 'bold ' : ''}${fontPx}px "${td.fontFamily}", sans-serif`;
+      ctx.fillStyle = '#06B6D4';
+      ctx.textAlign = td.align || 'left';
+      ctx.textBaseline = 'top';
+      const lines = td.text.split('\n');
+      const lineStep = fontPx * (td.lineHeight ?? 1.25);
+      const textX = td.align === 'center' ? 0 : (td.align === 'right' ? hw - 2 : -hw + 2);
+      for (let i = 0; i < lines.length; i++) {
+        ctx.fillText(lines[i], textX, -hh + i * lineStep);
+      }
+      ctx.restore();
+    }
 
     ctx.restore();
   }
