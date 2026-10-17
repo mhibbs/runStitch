@@ -4,7 +4,8 @@
     shapeFillMode,
     isBorderModalOpen,
     isMotifLibraryModalOpen,
-    activeStamp
+    activeStamp,
+    openTextModal
   } from '../stores/editorStore';
   import type { ActiveTool } from '../types';
   import {
@@ -20,7 +21,8 @@
     Circle,
     Stamp,
     Frame,
-    Hand
+    Hand,
+    Type
   } from 'lucide-svelte';
 
   const selectionTools: { id: ActiveTool; label: string; icon: any; shortcut: string }[] = [
@@ -197,6 +199,23 @@
       <Frame size={19} />
       <span class="absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
         Border Repeater...
+      </span>
+    </button>
+
+    <!-- Typography Text Tool -->
+    <button
+      type="button"
+      class="w-10 h-10 rounded-lg flex items-center justify-center transition-all relative group
+      {$activeTool === 'text'
+        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+        : 'text-indigo-400 hover:text-white hover:bg-[#2b2b36]'}"
+      on:click={() => { activeTool.set('text'); openTextModal(); }}
+      title="Typography Text Tool (T)"
+      aria-label="Text Tool"
+    >
+      <Type size={19} />
+      <span class="absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
+        Typography & Text (T)
       </span>
     </button>
 

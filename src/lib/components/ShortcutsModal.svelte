@@ -15,6 +15,7 @@
     { key: 'L', desc: 'Line Tool' },
     { key: 'R', desc: 'Rectangle Tool' },
     { key: 'O', desc: 'Ellipse / Oval Tool' },
+    { key: 'T', desc: 'Typography / Text Tool' },
     { key: 'Shift + Drag', desc: 'Constrain Shape (Square / Circle / 45°)' },
     { key: 'R (Stamp / Paste)', desc: 'Rotate Active Stamp or Paste 90° CW' },
     { key: 'H (Stamp / Paste)', desc: 'Flip Stamp or Paste Horizontally' },

@@ -15,7 +15,7 @@ export interface PaletteColor {
   brand?: string;       // 'dmc' | 'anchor' | 'cosmo' | 'rainbow'
 }
 
-export type LayerType = 'stitch' | 'image';
+export type LayerType = 'stitch' | 'image' | 'text';
 
 export interface ReferenceImage {
   src: string;          // Data URL or URL of the image
@@ -26,6 +26,23 @@ export interface ReferenceImage {
   width: number;        // Width in grid cells
   height: number;       // Height in grid cells
   rotation: number;     // 0, 90, 180, 270 degrees
+}
+
+export interface TextLayerData {
+  text: string;
+  fontFamily: string;
+  fontSize: number;       // In stitches / grid cells height
+  color: string;          // Hex color
+  x: number;              // Top-left in grid coordinates (cells)
+  y: number;              // Top-left in grid coordinates (cells)
+  width: number;          // Bounding box width in grid cells
+  height: number;         // Bounding box height in grid cells
+  rotation: number;       // Degrees
+  lineHeight?: number;    // Multiplier, default 1.2
+  letterSpacing?: number; // In pixels / pt
+  bold?: boolean;
+  italic?: boolean;
+  align?: 'left' | 'center' | 'right';
 }
 
 export type DitherMode = 'none' | 'floyd_steinberg' | 'atkinson';
@@ -52,6 +69,7 @@ export interface Layer {
   // Keyed by "x,y" coordinate string for sparse O(1) access
   stitches: Record<string, Stitch>;
   image?: ReferenceImage;
+  textData?: TextLayerData;
   // Bounding box for dirty rendering
   bounds?: {
     minX: number;
@@ -73,7 +91,8 @@ export type ActiveTool =
   | 'line'
   | 'rectangle'
   | 'ellipse'
-  | 'stamp';
+  | 'stamp'
+  | 'text';
 
 export type ShapeFillMode = 'outline' | 'filled';
 

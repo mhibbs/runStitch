@@ -466,8 +466,10 @@
             <Sparkles size={18} />
           </div>
           <div>
-            <h2 id="digitizer-title" class="text-base font-bold text-white tracking-wide">Digitize Image into DMC Stitches</h2>
-            <p class="text-xs text-gray-400">Transform "{sourceLayer?.name || 'Image'}" into standard cross-stitch chart</p>
+            <h2 id="digitizer-title" class="text-base font-bold text-white tracking-wide">
+              {sourceLayer?.type === 'text' ? 'Digitize Text into DMC Stitches' : 'Digitize Image into DMC Stitches'}
+            </h2>
+            <p class="text-xs text-gray-400">Transform "{sourceLayer?.name || (sourceLayer?.type === 'text' ? 'Text' : 'Image')}" into standard cross-stitch chart</p>
           </div>
         </div>
 

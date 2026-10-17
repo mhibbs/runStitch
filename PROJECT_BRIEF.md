@@ -202,11 +202,31 @@ To ensure instant $O(1)$ lookups, low memory usage, and zero GC stutter during c
     * Instant global pattern conversion: convert all current colors to the closest perceptual $\Delta E$ match in any target brand across all stitches with full undo/redo history.
     * Thread Color Swapping: select any color in the active palette and swap it with any thread from any catalog across the entire project in a single undoable step.
 
-* **Milestone 6: Cross-Stitch Typography (Text Tool)** `[NEXT FOCUS]`
-  * Pixel cross-stitch fonts (5px, 7px, 10px, backstitch cursive).
-  * Interactive on-canvas text placement and typing.
+* **Milestone 6: Cross-Stitch Typography (Text Tool & Google Fonts)** `[COMPLETED]`
+  * **Dedicated Text Layer Architecture (`LayerType = 'text'`)**:
+    * Integrated directly into the native layer stack alongside stitch and reference image layers.
+    * Text layers preserve editable typographic parameters: text content, font family, font size (in stitches), thread color swatch, bold, italic, line height, letter spacing, alignment, position `(x, y)`, and rotation.
+    * Dual compatibility: automatically rasterizes to an offscreen canvas data URL matching the transform renderer, enabling on-canvas border dragging, rotation, and seamless integration with the DMC digitizer engine.
+  * **Curated Font Catalog & Google WebFont Loader (`fontCatalog.ts`)**:
+    * 5 specialized cross-stitch categories:
+      * **Craft & Motifs**: *Yarndings 12*, *Yarndings 20*, *Yarndings 20 Charted* (authentic cross-stitch chart symbols, embroidery tools, yarn skeins, and crafting motifs typed directly as characters), *Jacquard 12*, *Jacquarda Bastarda 9*.
+      * **Pixel & 8-Bit**: *Silkscreen*, *Press Start 2P*, *VT323*, *DotGothic16*, *Pixelify Sans*.
+      * **Cursive & Sampler Scripts**: *Great Vibes*, *Dancing Script*, *Pacifico*, *Caveat*.
+      * **Sampler Serifs**: *Cinzel* (classical Roman sampler proportions), *Playfair Display*, *Marcellus*, *MedievalSharp*.
+      * **Modern Sans**: *Comfortaa*, *Outfit*, *Bungee*.
+    * Custom Font input allows typing any valid Google Font family name with automatic asynchronous WebFont loading (`document.fonts.load`).
+  * **Interactive Typography Modal (`TextModal.svelte`)**:
+    * Live preview box with real-time grid stitch dimension calculation (`W × H` st) and physical inches based on active fabric count.
+    * Direct palette swatch picker to match pattern thread colors.
+    * 1-Click "Digitize to Stitches" button converting text into stitches with active thread color, plus "Place Text Layer" to keep it editable.
+    * Direct access to full DMC Digitizer modal for multi-color reduction, background removal, and dithering.
+  * **UI & Shortcuts Integration**:
+    * Toolbar button `Type` (`T`) with shortcut indicator.
+    * Dedicated shortcut `T` with input-focus guards.
+    * MenuBar Design menu: "Text / Typography Layer...".
+    * Layer Manager: "+ Text" button in header, type icon badge, "Edit" button, "Digitize" button, and `{W}×{H}` dimension readout.
 
-* **Milestone 7: Print-Ready PDF & Interchange Formats**
+* **Milestone 7: Print-Ready PDF & Interchange Formats** `[NEXT FOCUS]`
   * Paginated PDF chart generation (black-and-white or color, with 10×10 numbered grids, floss keys, and skein estimators).
   * `.oxs` (Open X-Stitch XML) import and export.
 
@@ -221,26 +241,29 @@ src/
 ├── app.css                      # Tailwind & custom CSS utilities
 ├── lib/
 │   ├── types/
-│   │   └── index.ts             # Core interfaces (Stitch, Layer, ReferenceImage, DigitizerOptions, etc.)
+│   │   └── index.ts             # Core interfaces (Stitch, Layer, TextLayerData, ReferenceImage, etc.)
 │   ├── stores/
-│   │   └── editorStore.ts       # Central Svelte stores (grid, layers, palette, image transforms, digitizer)
+│   │   └── editorStore.ts       # Central Svelte stores (grid, layers, palette, typography, image transforms)
 │   ├── engine/
-│   │   ├── renderer.ts          # 3-canvas rendering engine, sprite caching, image layer rendering, transform handles
+│   │   ├── renderer.ts          # 3-canvas rendering engine, sprite caching, image/text layer rendering
 │   │   ├── geometry.ts          # Bresenham line, rectangle, midpoint ellipse, aspect constraints
 │   │   ├── borderGenerator.ts   # Perimeter and runner border repetition generator
 │   │   └── digitizer.ts         # CIE Lab matching, Median Cut palette, Atkinson/Floyd-Steinberg dithering
 │   ├── data/
 │   │   ├── dmcPalette.ts        # 491 standard DMC colors, Delta-E matching, starter palettes
-│   │   ├── motifLibrary.ts      # Curated flourishes, accents, borders, 5px font, custom stamp persistence
+│   │   ├── threadBrands.ts      # Multi-brand catalog (DMC, Anchor, Cosmo, Rainbow RGB) & brand conversion
+│   │   ├── fontCatalog.ts       # Curated Google Fonts, Yarndings craft glyphs, dynamic font loader
+│   │   ├── motifLibrary.ts      # Curated flourishes, accents, borders, custom stamp persistence
 │   │   └── sampleImages.ts      # Registry of bundled stock photos (Cool Cat, Retro Coffee)
 │   └── components/
 │       ├── Header.svelte        # Top navigation, project dimensions pill, quick actions
-│       ├── MenuBar.svelte       # Traditional Desktop menus (File, Edit, Design, View, Help)
-│       ├── Toolbar.svelte       # Drawing tools, Shape tools (L, R, U), Stamp & Border buttons
-│       ├── CanvasViewport.svelte# Multi-canvas interactive viewport, image transforms, floating controls, 2-line HUD
-│       ├── PaletteDock.svelte   # Active swatches, color picker, +Add DMC catalog modal
-│       ├── LayerManager.svelte  # Layer list, image badges, +Image dropdown, digitize button, reordering
-│       ├── DigitizerModal.svelte # Image-to-stitch digitization modal with live side-by-side preview & DMC controls
+│       ├── MenuBar.svelte       # Traditional Desktop menus (File, Edit, Select, Design, View, Help)
+│       ├── Toolbar.svelte       # Drawing tools, Selection tools (S, W, Q), Shape tools (L, R, O), Typography (T)
+│       ├── CanvasViewport.svelte# Multi-canvas interactive viewport, image transforms, floating controls, stable HUD
+│       ├── PaletteDock.svelte   # Active swatches, color picker, brand switcher, color swapper
+│       ├── LayerManager.svelte  # Layer list, image/text badges, +Image / +Text, digitize buttons, reordering
+│       ├── TextModal.svelte     # Cross-stitch typography modal with Google Fonts & Yarndings glyphs
+│       ├── DigitizerModal.svelte # Image & text digitization modal with live preview, framing & pipette
 │       ├── NewProjectModal.svelte # Canvas creation presets, custom dimensions, starter palettes
 │       ├── CanvasSizeModal.svelte # Preserving resize modal with center vs. top-left space allocation
 │       ├── ClearLayerModal.svelte # Styled confirmation dialog with stitch counts and Cmd+Z reminder

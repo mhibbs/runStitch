@@ -18,7 +18,8 @@ import type {
   FabricColorPreset,
   CompositeBorder,
   ReferenceImage,
-  DigitizerOptions
+  DigitizerOptions,
+  TextLayerData
 } from '../types';
 import { createDefaultPalette, CHART_SYMBOLS, getHighContrastTextColor, DMC_CATALOG, type DMCEntry } from '../data/dmcPalette';
 import { saveCustomStamp } from '../data/motifLibrary';
@@ -32,6 +33,7 @@ import {
   getSelectedCells
 } from '../engine/geometry';
 import { convertPaletteToBrand, THREAD_BRANDS } from '../data/threadBrands';
+import { measureTextDimensions, rasterizeTextLayer } from '../data/fontCatalog';
 
 // Initial state
 const defaultPalette = createDefaultPalette();
@@ -566,6 +568,8 @@ export const isClearLayerModalOpen = writable<boolean>(false);
 export const isBorderModalOpen = writable<boolean>(false);
 export const isMotifLibraryModalOpen = writable<boolean>(false);
 export const borderInitialMotif = writable<MotifStamp | null>(null);
+export const isTextModalOpen = writable<boolean>(false);
+export const editingTextLayerId = writable<string | null>(null);
 
 export type MeasurementUnit = 'in' | 'cm';
 export const measurementUnit = writable<MeasurementUnit>('in');
@@ -1343,6 +1347,280 @@ export async function addReferenceImageLayer(
   redoStack.set([]);
 
   return newId;
+}
+
+export function addTextLayer(config: {
+  text: string;
+  fontFamily: string;
+  fontSize: number;
+  color?: string;
+  x?: number;
+  y?: number;
+  rotation?: number;
+  bold?: boolean;
+  italic?: boolean;
+  align?: 'left' | 'center' | 'right';
+  lineHeight?: number;
+  letterSpacing?: number;
+}): string {
+  const currentGrid = get(grid);
+  const activeClr = get(activeColor);
+  const color = config.color || activeClr.hex || '#000000';
+
+  const { width: w, height: h } = measureTextDimensions(
+    config.text,
+    config.fontFamily,
+    config.fontSize,
+    config.bold,
+    config.italic,
+    config.lineHeight ?? 1.25,
+    config.letterSpacing ?? 0
+  );
+
+  const x = config.x !== undefined ? config.x : Math.max(0, Math.floor((currentGrid.width - w) / 2));
+  const y = config.y !== undefined ? config.y : Math.max(0, Math.floor((currentGrid.height - h) / 2));
+
+  const previewCanvas = rasterizeTextLayer(
+    config.text,
+    config.fontFamily,
+    config.fontSize,
+    color,
+    config.bold,
+    config.italic,
+    config.align || 'left',
+    config.lineHeight ?? 1.25,
+    config.letterSpacing ?? 0
+  );
+
+  const textData: TextLayerData = {
+    text: config.text,
+    fontFamily: config.fontFamily,
+    fontSize: config.fontSize,
+    color,
+    x,
+    y,
+    width: w,
+    height: h,
+    rotation: config.rotation || 0,
+    bold: config.bold || false,
+    italic: config.italic || false,
+    align: config.align || 'left',
+    lineHeight: config.lineHeight ?? 1.25,
+    letterSpacing: config.letterSpacing ?? 0
+  };
+
+  const newId = `layer-text-${Date.now()}`;
+  const shortText = config.text.split('\n')[0].slice(0, 16);
+  const name = `Text: "${shortText}${config.text.length > 16 ? '...' : ''}"`;
+
+  const newLayer: Layer = {
+    id: newId,
+    name,
+    type: 'text',
+    visible: true,
+    locked: false,
+    opacity: 1.0,
+    stitches: {},
+    textData,
+    image: {
+      src: previewCanvas.toDataURL(),
+      naturalWidth: previewCanvas.width,
+      naturalHeight: previewCanvas.height,
+      x,
+      y,
+      width: w,
+      height: h,
+      rotation: config.rotation || 0
+    }
+  };
+
+  const currentLayers = get(layers);
+  layers.set([...currentLayers, newLayer]);
+  activeLayerId.set(newId);
+
+  undoStack.update(u => [
+    ...u,
+    {
+      description: `Add Text "${shortText}"`,
+      layerId: newId,
+      before: {},
+      after: {},
+      layersSnapshot: currentLayers
+    }
+  ]);
+  redoStack.set([]);
+
+  return newId;
+}
+
+export function updateTextLayer(layerId: string, updates: Partial<TextLayerData>) {
+  const currentLayers = get(layers);
+  const target = currentLayers.find(l => l.id === layerId);
+  if (!target || target.type !== 'text' || !target.textData) return;
+
+  const merged: TextLayerData = { ...target.textData, ...updates };
+
+  const { width: w, height: h } = measureTextDimensions(
+    merged.text,
+    merged.fontFamily,
+    merged.fontSize,
+    merged.bold,
+    merged.italic,
+    merged.lineHeight ?? 1.25,
+    merged.letterSpacing ?? 0
+  );
+
+  merged.width = w;
+  merged.height = h;
+
+  const previewCanvas = rasterizeTextLayer(
+    merged.text,
+    merged.fontFamily,
+    merged.fontSize,
+    merged.color,
+    merged.bold,
+    merged.italic,
+    merged.align || 'left',
+    merged.lineHeight ?? 1.25,
+    merged.letterSpacing ?? 0
+  );
+
+  const shortText = merged.text.split('\n')[0].slice(0, 16);
+  const name = `Text: "${shortText}${merged.text.length > 16 ? '...' : ''}"`;
+
+  layers.update(ls => ls.map(l => {
+    if (l.id === layerId) {
+      return {
+        ...l,
+        name,
+        textData: merged,
+        image: {
+          src: previewCanvas.toDataURL(),
+          naturalWidth: previewCanvas.width,
+          naturalHeight: previewCanvas.height,
+          x: merged.x,
+          y: merged.y,
+          width: w,
+          height: h,
+          rotation: merged.rotation
+        }
+      };
+    }
+    return l;
+  }));
+
+  undoStack.update(u => [
+    ...u,
+    {
+      description: `Edit Text "${shortText}"`,
+      layerId,
+      before: {},
+      after: {},
+      layersSnapshot: currentLayers
+    }
+  ]);
+  redoStack.set([]);
+}
+
+export function openTextModal(layerId?: string) {
+  editingTextLayerId.set(layerId || null);
+  isTextModalOpen.set(true);
+}
+
+export function closeTextModal() {
+  isTextModalOpen.set(false);
+  editingTextLayerId.set(null);
+}
+
+export function quickDigitizeTextLayer(layerId: string) {
+  const currentLayers = get(layers);
+  const target = currentLayers.find(l => l.id === layerId);
+  if (!target || target.type !== 'text' || !target.textData) return;
+
+  // Rasterize text at 1:1 cell scale
+  const canvas = rasterizeTextLayer(
+    target.textData.text,
+    target.textData.fontFamily,
+    target.textData.fontSize,
+    '#000000',
+    target.textData.bold,
+    target.textData.italic,
+    target.textData.align || 'left',
+    target.textData.lineHeight ?? 1.25,
+    target.textData.letterSpacing ?? 0
+  );
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const sampleW = canvas.width;
+  const sampleH = canvas.height;
+  let sampleData = ctx.getImageData(0, 0, sampleW, sampleH).data;
+
+  const rot = target.textData.rotation || 0;
+  if (rot % 360 !== 0) {
+    const rotCanvas = document.createElement('canvas');
+    rotCanvas.width = sampleW;
+    rotCanvas.height = sampleH;
+    const rCtx = rotCanvas.getContext('2d');
+    if (rCtx) {
+      rCtx.save();
+      rCtx.translate(sampleW / 2, sampleH / 2);
+      rCtx.rotate((rot * Math.PI) / 180);
+      rCtx.drawImage(canvas, -sampleW / 2, -sampleH / 2);
+      rCtx.restore();
+      sampleData = rCtx.getImageData(0, 0, sampleW, sampleH).data;
+    }
+  }
+
+  const curColorId = get(selectedColorId);
+  const stitchesMap: Record<string, Stitch> = {};
+  const originX = target.textData.x;
+  const originY = target.textData.y;
+  const curGrid = get(grid);
+
+  for (let y = 0; y < sampleH; y++) {
+    for (let x = 0; x < sampleW; x++) {
+      const idx = (y * sampleW + x) * 4;
+      const alpha = sampleData[idx + 3];
+      if (alpha > 70) {
+        const gx = originX + x;
+        const gy = originY + y;
+        if (gx >= 0 && gx < curGrid.width && gy >= 0 && gy < curGrid.height) {
+          stitchesMap[`${gx},${gy}`] = {
+            colorId: curColorId,
+            type: 'full'
+          };
+        }
+      }
+    }
+  }
+
+  const newId = `layer-stitch-${Date.now()}`;
+  const shortText = target.textData.text.split('\n')[0].slice(0, 16);
+  const newStitchLayer: Layer = {
+    id: newId,
+    name: `Stitched: "${shortText}"`,
+    type: 'stitch',
+    visible: true,
+    locked: false,
+    opacity: 1.0,
+    stitches: stitchesMap
+  };
+
+  layers.set([...currentLayers, newStitchLayer]);
+  activeLayerId.set(newId);
+
+  undoStack.update(u => [
+    ...u,
+    {
+      description: `Digitize Text "${shortText}"`,
+      layerId: newId,
+      before: {},
+      after: {},
+      layersSnapshot: currentLayers
+    }
+  ]);
+  redoStack.set([]);
 }
 
 export function updateImageLayer(layerId: string, updates: Partial<ReferenceImage>) {

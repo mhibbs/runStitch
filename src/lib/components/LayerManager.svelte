@@ -10,7 +10,8 @@
     reorderLayers,
     flattenAllLayers,
     addReferenceImageLayer,
-    openDigitizerForLayer
+    openDigitizerForLayer,
+    openTextModal
   } from '../stores/editorStore';
   import { SAMPLE_IMAGES } from '../data/sampleImages';
   import {
@@ -31,7 +32,8 @@
     Image as ImageIcon,
     Sparkles,
     Upload,
-    ChevronDown
+    ChevronDown,
+    Type
   } from 'lucide-svelte';
 
   // Inline Rename state
@@ -292,6 +294,17 @@
         {/if}
       </div>
 
+      <!-- Add Text Layer Button -->
+      <button
+        type="button"
+        class="text-xs bg-purple-700/80 hover:bg-purple-600 text-white px-1.5 py-0.5 rounded flex items-center space-x-1 font-medium transition-colors shadow-sm cursor-pointer"
+        on:click={() => openTextModal()}
+        title="Add New Cross-Stitch Text Layer (T)"
+      >
+        <Type size={12} />
+        <span>+ Text</span>
+      </button>
+
       <button
         type="button"
         class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-0.5 rounded flex items-center space-x-1 font-medium transition-colors shadow-sm cursor-pointer"
@@ -334,7 +347,7 @@
       <div
         class="flex items-center justify-between p-1.5 rounded-lg border transition-all cursor-pointer group relative
         {$activeLayerId === layer.id
-          ? (layer.type === 'image' ? 'bg-cyan-950/60 border-cyan-500/80 shadow-sm' : 'bg-indigo-950/60 border-indigo-500/80 shadow-sm')
+          ? (layer.type === 'image' ? 'bg-cyan-950/60 border-cyan-500/80 shadow-sm' : layer.type === 'text' ? 'bg-purple-950/60 border-purple-500/80 shadow-sm' : 'bg-indigo-950/60 border-indigo-500/80 shadow-sm')
           : 'bg-[#25252e] border-transparent hover:bg-[#2b2b36]'}
         {dragOverLayerId === layer.id ? 'ring-2 ring-indigo-400 bg-indigo-900/40' : ''}"
         on:click={() => activeLayerId.set(layer.id)}
@@ -361,7 +374,7 @@
             title={layer.visible ? 'Hide Layer' : 'Show Layer'}
           >
             {#if layer.visible}
-              <Eye size={14} class={layer.type === 'image' ? 'text-cyan-400' : 'text-indigo-400'} />
+              <Eye size={14} class={layer.type === 'image' ? 'text-cyan-400' : layer.type === 'text' ? 'text-purple-400' : 'text-indigo-400'} />
             {:else}
               <EyeOff size={14} class="text-gray-600" />
             {/if}
@@ -383,6 +396,8 @@
           <!-- Layer Icon Indicator -->
           {#if layer.type === 'image'}
             <ImageIcon size={13} class="text-cyan-400 flex-shrink-0" />
+          {:else if layer.type === 'text'}
+            <Type size={13} class="text-purple-400 flex-shrink-0" />
           {/if}
 
           <!-- Layer Name & Inline Renaming -->
@@ -399,7 +414,7 @@
             />
           {:else}
             <span
-              class="text-xs font-medium truncate flex-1 cursor-text {layer.visible ? (layer.type === 'image' ? 'text-cyan-200' : 'text-gray-200') : 'text-gray-500'}"
+              class="text-xs font-medium truncate flex-1 cursor-text {layer.visible ? (layer.type === 'image' ? 'text-cyan-200' : layer.type === 'text' ? 'text-purple-200' : 'text-gray-200') : 'text-gray-500'}"
               on:dblclick|stopPropagation={() => startRename(layer)}
               title="Double-click to rename"
               role="button"
@@ -431,6 +446,25 @@
               <Sparkles size={10} />
               <span>Digitize</span>
             </button>
+          {:else if layer.type === 'text'}
+            <button
+              type="button"
+              class="px-1.5 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 text-[10px] font-semibold flex items-center space-x-1 shadow-sm transition-all cursor-pointer mr-0.5"
+              on:click|stopPropagation={() => openTextModal(layer.id)}
+              title="Edit text, font, size, or styling"
+            >
+              <Edit2 size={10} />
+              <span>Edit</span>
+            </button>
+            <button
+              type="button"
+              class="px-1.5 py-0.5 rounded bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-[10px] font-semibold flex items-center space-x-1 shadow-sm transition-all cursor-pointer mr-0.5"
+              on:click|stopPropagation={() => openDigitizerForLayer(layer.id)}
+              title="Digitize text into DMC stitches with custom color reduction"
+            >
+              <Sparkles size={10} />
+              <span>Digitize</span>
+            </button>
           {/if}
 
           <!-- Re-order buttons (Up/Down in visual list) -->
@@ -455,10 +489,14 @@
             </button>
           </div>
 
-          <!-- Stitch count or Image dimension badge -->
+          <!-- Stitch count, Image dimension, or Text dimension badge -->
           {#if layer.type === 'image'}
             <span class="text-[10px] font-mono text-cyan-300 bg-cyan-950/80 px-1.5 py-0.5 rounded border border-cyan-800/60" title="Image dimensions in grid cells">
               {Math.round(layer.image?.width || 0)}×{Math.round(layer.image?.height || 0)}
+            </span>
+          {:else if layer.type === 'text'}
+            <span class="text-[10px] font-mono text-purple-300 bg-purple-950/80 px-1.5 py-0.5 rounded border border-purple-800/60" title="Text bounding box in grid cells">
+              {Math.round(layer.textData?.width || layer.image?.width || 0)}×{Math.round(layer.textData?.height || layer.image?.height || 0)}
             </span>
           {:else}
             <span class="text-[10px] font-mono text-gray-400 bg-[#1a1a22] px-1.5 py-0.5 rounded border border-[#30303c]" title="Stitch count">

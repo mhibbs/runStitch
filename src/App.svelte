@@ -13,6 +13,7 @@
   import BorderMakerModal from './lib/components/BorderMakerModal.svelte';
   import SaveProjectModal from './lib/components/SaveProjectModal.svelte';
   import DigitizerModal from './lib/components/DigitizerModal.svelte';
+  import TextModal from './lib/components/TextModal.svelte';
   import {
     activeTool,
     undo,
@@ -41,7 +42,8 @@
     rotate90,
     flipHorizontal,
     flipVertical,
-    addReferenceImageLayer
+    addReferenceImageLayer,
+    openTextModal
   } from './lib/stores/editorStore';
   import { SwatchBook, Layers as LayersIcon, ChevronDown, ChevronRight, ChevronLeft } from 'lucide-svelte';
 
@@ -247,6 +249,11 @@
           activeTool.set('ellipse');
           e.preventDefault();
           break;
+        case 't': // Typography Text Tool
+          activeTool.set('text');
+          openTextModal();
+          e.preventDefault();
+          break;
         case '?': // Shortcuts help
           isShortcutsModalOpen.set(true);
           e.preventDefault();
@@ -411,6 +418,7 @@
   <BorderMakerModal />
   <SaveProjectModal />
   <DigitizerModal />
+  <TextModal />
 </div>
 
 

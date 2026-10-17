@@ -45,7 +45,8 @@
     projectName,
     activeLayer,
     addReferenceImageLayer,
-    openDigitizerForLayer
+    openDigitizerForLayer,
+    openTextModal
   } from '../stores/editorStore';
   import { SAMPLE_IMAGES } from '../data/sampleImages';
   import {
@@ -79,7 +80,8 @@
     Expand,
     Shrink,
     RefreshCw,
-    X
+    X,
+    Type
   } from 'lucide-svelte';
 
   let openMenu: 'file' | 'edit' | 'select' | 'design' | 'view' | 'help' | null = null;
@@ -527,13 +529,24 @@
         </button>
 
         <button
+          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-purple-600 hover:text-white transition-colors"
+          on:click={() => { closeMenu(); activeTool.set('text'); openTextModal(); }}
+        >
+          <div class="flex items-center space-x-2">
+            <Type size={14} class="text-purple-400" />
+            <span>Text / Typography Layer...</span>
+          </div>
+          <span class="text-[10px] text-gray-400">T</span>
+        </button>
+
+        <button
           class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-cyan-600 hover:text-white transition-colors disabled:opacity-40"
-          on:click={() => { closeMenu(); if ($activeLayer?.type === 'image') openDigitizerForLayer($activeLayer.id); }}
-          disabled={!$activeLayer || $activeLayer.type !== 'image'}
+          on:click={() => { closeMenu(); if ($activeLayer?.type === 'image' || $activeLayer?.type === 'text') openDigitizerForLayer($activeLayer.id); }}
+          disabled={!$activeLayer || ($activeLayer.type !== 'image' && $activeLayer.type !== 'text')}
         >
           <div class="flex items-center space-x-2">
             <Sparkles size={14} class="text-cyan-400" />
-            <span>Digitize Image to Stitches...</span>
+            <span>Digitize Image / Text to Stitches...</span>
           </div>
         </button>
 
