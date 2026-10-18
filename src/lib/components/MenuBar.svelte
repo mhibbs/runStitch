@@ -48,13 +48,17 @@
     openDigitizerForLayer,
     openTextModal,
     clearPasteboardStitches,
-    patternBounds
+    patternBounds,
+    initialSaveTab,
+    loadCompleteProject
   } from '../stores/editorStore';
+  import { parseOxsXml } from '../engine/oxsExport';
   import { SAMPLE_IMAGES } from '../data/sampleImages';
   import {
     FileText,
     FolderOpen,
     Save,
+    Printer,
     Maximize2,
     Undo2,
     Redo2,
@@ -124,8 +128,9 @@
     openMenu = null;
   }
 
-  function handleExport() {
+  function handleExport(tab: 'pdf' | 'oxs' | 'xstitch' = 'pdf') {
     closeMenu();
+    initialSaveTab.set(tab);
     isSaveModalOpen.set(true);
   }
 
@@ -136,19 +141,16 @@
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const json = JSON.parse(event.target?.result as string);
-        if (json.name) {
-          projectName.set(json.name);
-        } else if (file.name) {
-          const baseName = file.name.replace(/\.xstitch$/i, '').replace(/\.json$/i, '');
-          projectName.set(baseName || 'Imported Pattern');
+        const text = event.target?.result as string;
+        if (file.name.toLowerCase().endsWith('.oxs') || file.name.toLowerCase().endsWith('.xml')) {
+          const parsed = parseOxsXml(text);
+          loadCompleteProject(parsed);
+          return;
         }
-        if (json.grid) grid.set(json.grid);
-        if (json.palette) palette.set(json.palette);
-        if (json.layers) layers.set(json.layers);
-        triggerZoomToFit();
+        const json = JSON.parse(text);
+        loadCompleteProject(json);
       } catch (err) {
-        alert('Invalid .xstitch file format');
+        alert('Invalid pattern file format');
       }
     };
     reader.readAsText(file);
@@ -179,7 +181,7 @@
 <input
   bind:this={fileInputEl}
   type="file"
-  accept=".xstitch,.json"
+  accept=".xstitch,.json,.oxs,.xml"
   on:change={handleFileImport}
   class="hidden"
 />
@@ -202,7 +204,7 @@
       File
     </button>
     {#if openMenu === 'file'}
-      <div class="absolute left-0 top-full mt-1 w-56 bg-[#1f1f28] border border-gray-700 rounded-lg shadow-2xl py-1 z-50 text-xs text-gray-200">
+      <div class="absolute left-0 top-full mt-1 w-60 bg-[#1f1f28] border border-gray-700 rounded-lg shadow-2xl py-1 z-50 text-xs text-gray-200">
         <button
           class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-indigo-600 hover:text-white transition-colors"
           on:click={() => { closeMenu(); isNewProjectModalOpen.set(true); }}
@@ -220,18 +222,41 @@
         >
           <div class="flex items-center space-x-2">
             <FolderOpen size={14} />
-            <span>Open Pattern...</span>
+            <span>Open (.xstitch, .oxs)...</span>
           </div>
           <span class="text-[10px] text-gray-400">Cmd+O</span>
         </button>
 
+        <div class="my-1 border-t border-gray-700"></div>
+
         <button
           class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-indigo-600 hover:text-white transition-colors"
-          on:click={handleExport}
+          on:click={() => handleExport('pdf')}
         >
           <div class="flex items-center space-x-2">
-            <Save size={14} />
-            <span>Save .xstitch</span>
+            <Printer size={14} class="text-purple-400" />
+            <span>Export Print PDF Chart...</span>
+          </div>
+          <span class="text-[10px] text-gray-400">Cmd+P</span>
+        </button>
+
+        <button
+          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-indigo-600 hover:text-white transition-colors"
+          on:click={() => handleExport('oxs')}
+        >
+          <div class="flex items-center space-x-2">
+            <Sparkles size={14} class="text-cyan-400" />
+            <span>Export Open X-Stitch (.oxs)...</span>
+          </div>
+        </button>
+
+        <button
+          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-indigo-600 hover:text-white transition-colors"
+          on:click={() => handleExport('xstitch')}
+        >
+          <div class="flex items-center space-x-2">
+            <Save size={14} class="text-emerald-400" />
+            <span>Save Project (.xstitch)</span>
           </div>
           <span class="text-[10px] text-gray-400">Cmd+S</span>
         </button>

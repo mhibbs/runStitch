@@ -234,9 +234,29 @@ To ensure instant $O(1)$ lookups, low memory usage, and zero GC stutter during c
     * **Digitizer Pan-to-Left Fix**: Fixed negative scroll clamping on centered preview canvas, allowing full panning to the left edge when zoomed in.
     * **Shortcut Remapping**: `M` mapped to Move Tool, `V` reserved strictly for vertical flip during floating selection and motif stamping.
 
-* **Milestone 7: Print-Ready PDF & Interchange Formats** `[NEXT FOCUS]`
-  * Paginated PDF chart generation (black-and-white or color, with 10×10 numbered grids, floss keys, and skein estimators).
-  * `.oxs` (Open X-Stitch XML) import and export.
+* **Milestone 7: Print-Ready PDF & Interchange Formats** `[COMPLETED]`
+  * **Print-Ready PDF Chart Generator (`pdfExport.ts`)**:
+    * **Artboard-Scoped Publishing**: PDF charts strictly scope and chart the official pattern artboard (`[0..width-1, 0..height-1]`), reporting any staging stitches on the pasteboard separately.
+    * **Cover & Summary Page**: Professional title header, author/designer info, physical finished dimensions calculated for 14ct, 16ct, and 18ct Aida (in inches and cm), Aida cloth color, total stitches, and total unique thread shades.
+    * **High-Resolution Embroidery Mockup**: Realistic 3D cross-stitch rendering of the finished design with Aida weave and thread sheen directly on the cover.
+    * **Floss Legend & Skein Estimator Table**:
+      * Complete listing of all threads used in the pattern: Symbol, Color Swatch, Thread Brand (DMC, Anchor, Cosmo, Rainbow), Floss Code, Color Description, Total Stitches, and Skein Count (calculated for standard 8m 6-strand skeins with 2 strands @ 1,800 stitches/skein).
+    * **High-Contrast Chart Grid**:
+      * Dual Chart Modes: **Color Symbols** (tinted cell backgrounds with high-contrast symbols) vs. **Black & White Chart** (crisp black symbols on white grid, the traditional publication standard).
+      * 10×10 numbered border markers (10, 20, 30...) on all four sides.
+      * Bold 10×10 major grid lines and fine 1×1 minor stitch grid lines.
+      * Red center triangular arrows marking the exact horizontal and vertical center of the design.
+      * Smart Auto-Pagination: Large patterns automatically paginate across manageable grid pages (e.g. 50×70 stitches/page) with 3-stitch shaded overlaps and mini page thumbnail overview maps.
+  * **Open X-Stitch (.oxs) XML Engine (`oxsExport.ts`)**:
+    * **Full Export**: Generates standardized `.oxs` (Open X-Stitch XML) interchange files containing chart properties, artboard dimensions, multi-brand floss definitions, layer metadata, and stitches, compatible with WinStitch, MacStitch, Pattern Maker, and PCStitch.
+    * **Full Import**: Parses `.oxs` XML files, reconstructing the pattern artboard, thread palette, layers, and stitches with instant zoom-to-fit and full undo capability.
+  * **Unified Export & Publishing Center (`SaveProjectModal.svelte`)**:
+    * Tabbed studio interface supporting Print-Ready PDF Chart (`Cmd+P`), Open X-Stitch (.oxs), and native project files (.xstitch JSON).
+    * Integrated into top Header ("Export PDF" and "Save"), MenuBar File menu, and global shortcuts.
+  * **Typography Studio Refinements**:
+    * **Responsive Thickness Slider**: Fixed reactive reset bug so the stitch thickness/rasterization weight slider drags smoothly and updates stitches in real time.
+    * **Fitted 100% Zoom Preview**: The entire text is always fully framed within the preview window at 100% zoom; increasing font size keeps the text framed while making the stitch dots finer and more detailed.
+    * **Multi-Line Alignment Helper**: Clarified line alignment controls with tooltips and contextual status indicators.
 
 ---
 

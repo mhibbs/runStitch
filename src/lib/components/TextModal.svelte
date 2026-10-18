@@ -64,7 +64,9 @@
   // Preview Mode: 'stitched' shows actual pixelated DMC stitches; 'smooth' shows vector font
   let previewType: 'stitched' | 'smooth' = 'stitched';
   let previewCanvasEl: HTMLCanvasElement;
+  let previewContainerEl: HTMLDivElement;
   let previewZoom = 1.0;
+  let wasModalOpen = false;
 
   // Threshold computed from rasterStrength: 10% -> 0.60 (delicate), 50% -> 0.35 (balanced default), 90% -> 0.15 (chunky bold)
   $: threshold = rasterStrength <= 50
@@ -75,9 +77,11 @@
     preloadAllCuratedFonts();
   });
 
-  // React to modal opening or editing target change
-  $: if ($isTextModalOpen) {
+  // React to modal opening ONLY ONCE when transition from closed to open
+  $: if ($isTextModalOpen && !wasModalOpen) {
+    wasModalOpen = true;
     preloadAllCuratedFonts();
+    previewZoom = 1.0;
     if ($editingTextLayerId) {
       const target = $layers.find(l => l.id === $editingTextLayerId);
       if (target && target.type === 'text' && target.textData) {
@@ -114,6 +118,8 @@
       chosenColorHex = $activeColor.hex;
       rasterStrength = 50;
     }
+  } else if (!$isTextModalOpen) {
+    wasModalOpen = false;
   }
 
   // Active family
@@ -191,31 +197,42 @@
 
     const imgData = rCtx.getImageData(0, 0, rW, rH).data;
 
-    // Fixed natural stitch cell size (11px * previewZoom).
-    // Smaller font size = smaller stitch cells, fitting MORE text across the preview!
-    const cellSize = Math.max(4, Math.round(11 * previewZoom));
+    // Available preview container space
+    const availW = previewContainerEl ? Math.max(260, previewContainerEl.clientWidth - 48) : 460;
+    const availH = previewContainerEl ? Math.max(180, previewContainerEl.clientHeight - 48) : 260;
 
-    previewCanvasEl.width = rW * cellSize;
-    previewCanvasEl.height = rH * cellSize;
+    // At 100% zoom (previewZoom = 1.0), the entirety of the text fits comfortably inside the preview frame.
+    // As fontSize increases (more stitches in rW/rH), fitCellSize decreases, making the dots smaller and the font more detailed!
+    const fitCellW = availW / Math.max(1, rW);
+    const fitCellH = availH / Math.max(1, rH);
+    const baseCellSize = Math.max(1.8, Math.min(18, Math.min(fitCellW, fitCellH)));
+    const cellSize = Math.max(1.2, baseCellSize * previewZoom);
+
+    previewCanvasEl.width = Math.max(20, Math.round(rW * cellSize));
+    previewCanvasEl.height = Math.max(20, Math.round(rH * cellSize));
 
     // Background cloth
     ctx.fillStyle = $fabricColor || '#F9F6EE';
     ctx.fillRect(0, 0, previewCanvasEl.width, previewCanvasEl.height);
 
-    // Grid lines
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
-    ctx.lineWidth = 1;
-    for (let x = 0; x <= rW; x++) {
-      ctx.beginPath();
-      ctx.moveTo(x * cellSize, 0);
-      ctx.lineTo(x * cellSize, rH * cellSize);
-      ctx.stroke();
-    }
-    for (let y = 0; y <= rH; y++) {
-      ctx.beginPath();
-      ctx.moveTo(0, y * cellSize);
-      ctx.lineTo(rW * cellSize, y * cellSize);
-      ctx.stroke();
+    // Grid lines (rendered when cell size is large enough to avoid muddying fine text)
+    if (cellSize >= 4.5) {
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
+      ctx.lineWidth = 1;
+      for (let x = 0; x <= rW; x++) {
+        const px = Math.round(x * cellSize);
+        ctx.beginPath();
+        ctx.moveTo(px, 0);
+        ctx.lineTo(px, previewCanvasEl.height);
+        ctx.stroke();
+      }
+      for (let y = 0; y <= rH; y++) {
+        const py = Math.round(y * cellSize);
+        ctx.beginPath();
+        ctx.moveTo(0, py);
+        ctx.lineTo(previewCanvasEl.width, py);
+        ctx.stroke();
+      }
     }
 
     // Cutoff based on rasterStrength (10 to 90) -> threshold
@@ -229,22 +246,28 @@
         const alpha = imgData[idx + 3];
         if (alpha >= thresholdAlpha) {
           stitchCount++;
-          const px = x * cellSize;
-          const py = y * cellSize;
+          const px = Math.floor(x * cellSize);
+          const py = Math.floor(y * cellSize);
+          const cW = Math.max(1, Math.ceil((x + 1) * cellSize) - px);
+          const cH = Math.max(1, Math.ceil((y + 1) * cellSize) - py);
 
           // Stitch block
           ctx.fillStyle = chosenColorHex;
-          ctx.fillRect(px + 1, py + 1, cellSize - 2, cellSize - 2);
+          if (cellSize >= 5) {
+            ctx.fillRect(px + 1, py + 1, Math.max(1, cW - 1), Math.max(1, cH - 1));
+          } else {
+            ctx.fillRect(px, py, cW, cH);
+          }
 
           // Subtle cross lines if cell size permits
-          if (cellSize >= 8) {
+          if (cellSize >= 9) {
             ctx.strokeStyle = 'rgba(0, 0, 0, 0.25)';
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(px + 2, py + 2);
-            ctx.lineTo(px + cellSize - 2, py + cellSize - 2);
-            ctx.moveTo(px + cellSize - 2, py + 2);
-            ctx.lineTo(px + 2, py + cellSize - 2);
+            ctx.lineTo(px + cW - 2, py + cH - 2);
+            ctx.moveTo(px + cW - 2, py + 2);
+            ctx.lineTo(px + 2, py + cH - 2);
             ctx.stroke();
           }
         }
@@ -631,13 +654,13 @@
               </button>
             </div>
 
-            <!-- Alignment -->
-            <div class="flex items-center space-x-1 bg-[#1a1a24] p-1 rounded-lg border border-gray-700/60">
+            <!-- Multi-line Alignment -->
+            <div class="flex items-center space-x-1 bg-[#1a1a24] p-1 rounded-lg border border-gray-700/60" title="Aligns lines relative to each other for multi-line text">
               <button
                 type="button"
                 class="p-1.5 rounded transition-colors {alignment === 'left' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'}"
                 on:click={() => (alignment = 'left')}
-                title="Align Left"
+                title="Align Left (aligns lines for multi-line text)"
               >
                 <AlignLeft size={13} />
               </button>
@@ -645,7 +668,7 @@
                 type="button"
                 class="p-1.5 rounded transition-colors {alignment === 'center' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'}"
                 on:click={() => (alignment = 'center')}
-                title="Align Center"
+                title="Align Center (aligns lines for multi-line text)"
               >
                 <AlignCenter size={13} />
               </button>
@@ -653,12 +676,17 @@
                 type="button"
                 class="p-1.5 rounded transition-colors {alignment === 'right' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'}"
                 on:click={() => (alignment = 'right')}
-                title="Align Right"
+                title="Align Right (aligns lines for multi-line text)"
               >
                 <AlignRight size={13} />
               </button>
             </div>
           </div>
+          {#if text.includes('\n')}
+            <div class="text-[10px] text-gray-500 font-mono text-right -mt-2">
+              Lines aligned: {alignment}
+            </div>
+          {/if}
 
           <!-- Thread Color Palette Swatch Picker -->
           <div class="bg-[#20202c] border border-gray-800 rounded-xl p-3">
@@ -719,16 +747,23 @@
                   <button
                     type="button"
                     class="p-1 hover:text-white rounded hover:bg-gray-800 transition-colors cursor-pointer"
-                    on:click={() => (previewZoom = Math.max(0.5, previewZoom - 0.25))}
+                    on:click={() => (previewZoom = Math.max(0.5, +(previewZoom - 0.25).toFixed(2)))}
                     title="Zoom Out"
                   >
                     <ZoomOut size={12} />
                   </button>
-                  <span class="font-mono text-[10px] w-8 text-center">{Math.round(previewZoom * 100)}%</span>
+                  <button
+                    type="button"
+                    class="px-1.5 py-0.5 text-[10px] font-mono hover:text-white rounded hover:bg-gray-800 transition-colors cursor-pointer"
+                    on:click={() => (previewZoom = 1.0)}
+                    title="Reset to Fit View (100%)"
+                  >
+                    {Math.round(previewZoom * 100)}%
+                  </button>
                   <button
                     type="button"
                     class="p-1 hover:text-white rounded hover:bg-gray-800 transition-colors cursor-pointer"
-                    on:click={() => (previewZoom = Math.min(2.5, previewZoom + 0.25))}
+                    on:click={() => (previewZoom = Math.min(3.0, +(previewZoom + 0.25).toFixed(2)))}
                     title="Zoom In"
                   >
                     <ZoomIn size={12} />
@@ -739,7 +774,10 @@
           </div>
 
           <!-- Preview Frame -->
-          <div class="flex-1 min-h-[300px] max-h-[440px] bg-[#0E0E14] border border-gray-800 rounded-xl overflow-auto p-4 relative shadow-inner flex">
+          <div
+            bind:this={previewContainerEl}
+            class="flex-1 min-h-[300px] max-h-[440px] bg-[#0E0E14] border border-gray-800 rounded-xl overflow-auto p-4 relative shadow-inner flex"
+          >
             {#if previewType === 'stitched'}
               <div class="m-auto w-fit h-fit p-2">
                 <canvas

@@ -26,6 +26,7 @@
     isMotifLibraryModalOpen,
     isBorderModalOpen,
     isSaveModalOpen,
+    initialSaveTab,
     copySelection,
     cutSelection,
     pasteClipboard,
@@ -139,6 +140,15 @@
     // Save Pattern: Cmd+S or Ctrl+S
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
       e.preventDefault();
+      initialSaveTab.set('xstitch');
+      isSaveModalOpen.set(true);
+      return;
+    }
+
+    // Export / Print PDF Chart: Cmd+P or Ctrl+P
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'p') {
+      e.preventDefault();
+      initialSaveTab.set('pdf');
       isSaveModalOpen.set(true);
       return;
     }

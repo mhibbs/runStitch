@@ -10,12 +10,13 @@
     isCanvasSizeModalOpen,
     isNewProjectModalOpen,
     isSaveModalOpen,
+    initialSaveTab,
     projectName,
     measurementUnit,
     formatDimensions
   } from '../stores/editorStore';
   import MenuBar from './MenuBar.svelte';
-  import { Undo2, Redo2, Download, Plus, Maximize2, Pencil } from 'lucide-svelte';
+  import { Undo2, Redo2, Download, Plus, Maximize2, Pencil, Printer } from 'lucide-svelte';
 
   $: physicalDimensions = formatDimensions($grid.width, $grid.height, $grid.fabricCount, $measurementUnit);
 
@@ -152,12 +153,23 @@
       <span>New</span>
     </button>
 
+    <!-- Export / Print PDF Chart Quick Button -->
+    <button
+      type="button"
+      class="bg-purple-600 hover:bg-purple-500 text-white text-xs font-medium px-2.5 py-1.5 rounded-md flex items-center space-x-1.5 shadow-sm transition-colors cursor-pointer"
+      on:click={() => { initialSaveTab.set('pdf'); isSaveModalOpen.set(true); }}
+      title="Export Print-Ready PDF Chart (Cmd+P)"
+    >
+      <Printer size={14} />
+      <span class="hidden sm:inline">Export PDF</span>
+    </button>
+
     <!-- Save / Export -->
     <button
       type="button"
       class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium px-3 py-1.5 rounded-md flex items-center space-x-1.5 shadow-sm transition-colors cursor-pointer"
-      on:click={() => isSaveModalOpen.set(true)}
-      title="Save Pattern (Cmd+S)"
+      on:click={() => { initialSaveTab.set('xstitch'); isSaveModalOpen.set(true); }}
+      title="Save Pattern Project (Cmd+S)"
     >
       <Download size={14} />
       <span class="hidden sm:inline">Save</span>

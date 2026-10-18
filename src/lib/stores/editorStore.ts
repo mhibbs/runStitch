@@ -509,6 +509,7 @@ export function clearCurrentLayer() {
 // Project metadata
 export const projectName = writable<string>('Untitled Pattern');
 export const isSaveModalOpen = writable<boolean>(false);
+export const initialSaveTab = writable<'pdf' | 'oxs' | 'xstitch'>('pdf');
 
 export function saveProjectFile(customFileName?: string) {
   const currentName = get(projectName) || 'Untitled Pattern';
@@ -523,6 +524,7 @@ export function saveProjectFile(customFileName?: string) {
     name: currentName,
     timestamp: new Date().toISOString(),
     grid: get(grid),
+    fabricColor: get(fabricColor),
     palette: get(palette),
     layers: get(layers)
   };
@@ -534,6 +536,23 @@ export function saveProjectFile(customFileName?: string) {
   a.download = fileName;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+export function loadCompleteProject(data: {
+  name?: string;
+  grid?: GridDimensions;
+  palette?: PaletteColor[];
+  layers?: Layer[];
+  fabricColor?: string;
+}) {
+  if (data.name) projectName.set(data.name);
+  if (data.grid) grid.set(data.grid);
+  if (data.palette) palette.set(data.palette);
+  if (data.layers) layers.set(data.layers);
+  if (data.fabricColor) fabricColor.set(data.fabricColor);
+  undoStack.set([]);
+  redoStack.set([]);
+  triggerZoomToFit();
 }
 
 export function resetProject(dimensions: GridDimensions & { name?: string }, paletteChoice: 'default' | 'minimal' = 'default') {
