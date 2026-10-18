@@ -38,14 +38,19 @@ export interface TextLayerData {
   width: number;          // Bounding box width in grid cells
   height: number;         // Bounding box height in grid cells
   rotation: number;       // Degrees
-  lineHeight?: number;    // Multiplier, default 1.2
-  letterSpacing?: number; // In pixels / pt
+  lineHeight?: number;    // Multiplier, default 1.25
+  letterSpacing?: number; // In stitches / px
   bold?: boolean;
   italic?: boolean;
   align?: 'left' | 'center' | 'right';
   threshold?: number;     // 0.15 to 0.75 (coverage threshold for stitch rasterization), default 0.35
   padLeft?: number;       // Safety margin offset in cells for flourishes/italics
   padTop?: number;        // Safety margin offset in cells
+  padRight?: number;
+  nominalWidth?: number;
+  nominalHeight?: number;
+  fontType?: 'google' | 'stitch_alphabet';
+  stitchAlphabetId?: string;
 }
 
 export type DitherMode = 'none' | 'floyd_steinberg' | 'atkinson';

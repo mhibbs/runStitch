@@ -47,6 +47,19 @@
     Search
   } from 'lucide-svelte';
 
+  import {
+    STITCH_ALPHABETS,
+    typesetStitchAlphabet,
+    type StitchAlphabet
+  } from '../data/stitchAlphabets';
+
+  let fontMode: 'stitch' | 'google' = 'stitch';
+  let selectedStitchAlphabetId = STITCH_ALPHABETS[0].id;
+  let letterSpacingStitches = 1; // Kerning in stitches
+  let lineSpacingStitches = 2; // Line spacing in stitches
+  let letterSpacingGoogle = 0; // Kerning in pixels/stitches
+  let lineSpacingGoogle = 1.25; // Line height multiplier
+
   let text = 'Stitched with Love';
   let selectedFontFamily = DEFAULT_CURATED_FONTS[0].family;
   let customFontInput = '';
@@ -92,6 +105,17 @@
         alignment = target.textData.align || 'center';
         chosenColorHex = target.textData.color;
 
+        if (target.textData.fontType === 'stitch_alphabet') {
+          fontMode = 'stitch';
+          selectedStitchAlphabetId = target.textData.stitchAlphabetId || STITCH_ALPHABETS[0].id;
+          letterSpacingStitches = target.textData.letterSpacing !== undefined ? target.textData.letterSpacing : 1;
+          lineSpacingStitches = target.textData.lineHeight !== undefined ? Math.round(target.textData.lineHeight) : 2;
+        } else {
+          fontMode = 'google';
+          letterSpacingGoogle = target.textData.letterSpacing !== undefined ? target.textData.letterSpacing : 0;
+          lineSpacingGoogle = target.textData.lineHeight !== undefined ? target.textData.lineHeight : 1.25;
+        }
+
         if (target.textData.threshold !== undefined) {
           const t = target.textData.threshold;
           if (t <= 0.35) {
@@ -136,7 +160,7 @@
 
   // Load font dynamically if custom or not yet cached
   $: {
-    if (currentFamily) {
+    if (fontMode === 'google' && currentFamily) {
       isFontLoading = true;
       loadGoogleFont(currentFamily).then(() => {
         isFontLoading = false;
@@ -145,16 +169,14 @@
     }
   }
 
-  // Live calculated dimensions
-  $: dimensions = measureTextDimensions(text, currentFamily, fontSize, isBold, isItalic);
+  let dimensions = { width: 40, height: 20 };
   $: inchWidth = (dimensions.width / $grid.fabricCount).toFixed(1);
   $: inchHeight = (dimensions.height / $grid.fabricCount).toFixed(1);
 
   // Re-render stitch preview when any parameter changes, including previewZoom and threshold
   $: if (
     previewCanvasEl &&
-    previewType === 'stitched' &&
-    (text || currentFamily || fontSize || isBold || isItalic || chosenColorHex || alignment || $fabricColor || $fontsReadyTrigger || previewZoom || threshold)
+    (text || fontMode || selectedStitchAlphabetId || letterSpacingStitches || lineSpacingStitches || letterSpacingGoogle || lineSpacingGoogle || currentFamily || fontSize || isBold || isItalic || chosenColorHex || alignment || $fabricColor || $fontsReadyTrigger || previewZoom || threshold)
   ) {
     renderStitchPreview();
   }
@@ -180,6 +202,60 @@
     const ctx = previewCanvasEl.getContext('2d');
     if (!ctx) return;
 
+    const availW = previewContainerEl ? Math.max(260, previewContainerEl.clientWidth - 48) : 460;
+    const availH = previewContainerEl ? Math.max(180, previewContainerEl.clientHeight - 48) : 260;
+
+    if (fontMode === 'stitch') {
+      const alpha = STITCH_ALPHABETS.find(a => a.id === selectedStitchAlphabetId) || STITCH_ALPHABETS[0];
+      const rendered = typesetStitchAlphabet(alpha, text, {
+        letterSpacing: letterSpacingStitches,
+        lineSpacing: lineSpacingStitches,
+        align: alignment
+      });
+
+      dimensions = { width: rendered.width, height: rendered.height };
+
+      const fitCellW = availW / Math.max(1, rendered.width);
+      const fitCellH = availH / Math.max(1, rendered.height);
+      const baseCellSize = Math.max(2.5, Math.min(22, Math.min(fitCellW, fitCellH)));
+      const cellSize = Math.max(1.5, baseCellSize * previewZoom);
+
+      previewCanvasEl.width = Math.max(20, Math.round(rendered.width * cellSize));
+      previewCanvasEl.height = Math.max(20, Math.round(rendered.height * cellSize));
+
+      ctx.fillStyle = $fabricColor || '#F9F6EE';
+      ctx.fillRect(0, 0, previewCanvasEl.width, previewCanvasEl.height);
+
+      if (cellSize >= 4.5) {
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
+        ctx.lineWidth = 1;
+        for (let x = 0; x <= rendered.width; x++) {
+          const px = Math.round(x * cellSize);
+          ctx.beginPath();
+          ctx.moveTo(px, 0);
+          ctx.lineTo(px, previewCanvasEl.height);
+          ctx.stroke();
+        }
+        for (let y = 0; y <= rendered.height; y++) {
+          const py = Math.round(y * cellSize);
+          ctx.beginPath();
+          ctx.moveTo(0, py);
+          ctx.lineTo(previewCanvasEl.width, py);
+          ctx.stroke();
+        }
+      }
+
+      ctx.fillStyle = chosenColorHex;
+      for (const st of rendered.stitches) {
+        const px = Math.floor(st.x * cellSize);
+        const py = Math.floor(st.y * cellSize);
+        const sW = Math.max(1, Math.ceil(cellSize));
+        const sH = Math.max(1, Math.ceil(cellSize));
+        ctx.fillRect(px, py, sW, sH);
+      }
+      return;
+    }
+
     const raster = rasterizeTextLayer(
       text,
       currentFamily,
@@ -187,22 +263,20 @@
       '#000000',
       isBold,
       isItalic,
-      alignment
+      alignment,
+      lineSpacingGoogle,
+      letterSpacingGoogle
     );
 
     const rW = raster.width;
     const rH = raster.height;
+    dimensions = { width: rW, height: rH };
+
     const rCtx = raster.getContext('2d');
     if (!rCtx) return;
 
     const imgData = rCtx.getImageData(0, 0, rW, rH).data;
 
-    // Available preview container space
-    const availW = previewContainerEl ? Math.max(260, previewContainerEl.clientWidth - 48) : 460;
-    const availH = previewContainerEl ? Math.max(180, previewContainerEl.clientHeight - 48) : 260;
-
-    // At 100% zoom (previewZoom = 1.0), the entirety of the text fits comfortably inside the preview frame.
-    // As fontSize increases (more stitches in rW/rH), fitCellSize decreases, making the dots smaller and the font more detailed!
     const fitCellW = availW / Math.max(1, rW);
     const fitCellH = availH / Math.max(1, rH);
     const baseCellSize = Math.max(1.8, Math.min(18, Math.min(fitCellW, fitCellH)));
@@ -211,11 +285,9 @@
     previewCanvasEl.width = Math.max(20, Math.round(rW * cellSize));
     previewCanvasEl.height = Math.max(20, Math.round(rH * cellSize));
 
-    // Background cloth
     ctx.fillStyle = $fabricColor || '#F9F6EE';
     ctx.fillRect(0, 0, previewCanvasEl.width, previewCanvasEl.height);
 
-    // Grid lines (rendered when cell size is large enough to avoid muddying fine text)
     if (cellSize >= 4.5) {
       ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
       ctx.lineWidth = 1;
@@ -235,71 +307,56 @@
       }
     }
 
-    // Cutoff based on rasterStrength (10 to 90) -> threshold
     const thresholdAlpha = Math.round(threshold * 255);
 
-    // Render stitches
-    let stitchCount = 0;
+    ctx.fillStyle = chosenColorHex;
     for (let y = 0; y < rH; y++) {
       for (let x = 0; x < rW; x++) {
         const idx = (y * rW + x) * 4;
         const alpha = imgData[idx + 3];
         if (alpha >= thresholdAlpha) {
-          stitchCount++;
           const px = Math.floor(x * cellSize);
           const py = Math.floor(y * cellSize);
-          const cW = Math.max(1, Math.ceil((x + 1) * cellSize) - px);
-          const cH = Math.max(1, Math.ceil((y + 1) * cellSize) - py);
-
-          // Stitch block
-          ctx.fillStyle = chosenColorHex;
-          if (cellSize >= 5) {
-            ctx.fillRect(px + 1, py + 1, Math.max(1, cW - 1), Math.max(1, cH - 1));
-          } else {
-            ctx.fillRect(px, py, cW, cH);
-          }
-
-          // Subtle cross lines if cell size permits
-          if (cellSize >= 9) {
-            ctx.strokeStyle = 'rgba(0, 0, 0, 0.25)';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(px + 2, py + 2);
-            ctx.lineTo(px + cW - 2, py + cH - 2);
-            ctx.moveTo(px + cW - 2, py + 2);
-            ctx.lineTo(px + 2, py + cH - 2);
-            ctx.stroke();
-          }
+          const sW = Math.max(1, Math.ceil(cellSize));
+          const sH = Math.max(1, Math.ceil(cellSize));
+          ctx.fillRect(px, py, sW, sH);
         }
       }
     }
   }
-
   function handleSaveTextLayer() {
     if (!text.trim()) return;
 
+    const payload = fontMode === 'stitch'
+      ? {
+          text,
+          fontFamily: selectedStitchAlphabetId,
+          fontSize: STITCH_ALPHABETS.find(a => a.id === selectedStitchAlphabetId)?.height || 7,
+          color: chosenColorHex,
+          align: alignment,
+          letterSpacing: letterSpacingStitches,
+          lineHeight: lineSpacingStitches,
+          fontType: 'stitch_alphabet' as const,
+          stitchAlphabetId: selectedStitchAlphabetId
+        }
+      : {
+          text,
+          fontFamily: currentFamily,
+          fontSize,
+          color: chosenColorHex,
+          bold: isBold,
+          italic: isItalic,
+          align: alignment,
+          letterSpacing: letterSpacingGoogle,
+          lineHeight: lineSpacingGoogle,
+          threshold,
+          fontType: 'google' as const
+        };
+
     if ($editingTextLayerId) {
-      updateTextLayer($editingTextLayerId, {
-        text,
-        fontFamily: currentFamily,
-        fontSize,
-        color: chosenColorHex,
-        bold: isBold,
-        italic: isItalic,
-        align: alignment,
-        threshold
-      });
+      updateTextLayer($editingTextLayerId, payload);
     } else {
-      addTextLayer({
-        text,
-        fontFamily: currentFamily,
-        fontSize,
-        color: chosenColorHex,
-        bold: isBold,
-        italic: isItalic,
-        align: alignment,
-        threshold
-      });
+      addTextLayer(payload);
     }
 
     closeTextModal();
@@ -308,29 +365,37 @@
   function handleQuickDigitize() {
     if (!text.trim()) return;
 
+    const payload = fontMode === 'stitch'
+      ? {
+          text,
+          fontFamily: selectedStitchAlphabetId,
+          fontSize: STITCH_ALPHABETS.find(a => a.id === selectedStitchAlphabetId)?.height || 7,
+          color: chosenColorHex,
+          align: alignment,
+          letterSpacing: letterSpacingStitches,
+          lineHeight: lineSpacingStitches,
+          fontType: 'stitch_alphabet' as const,
+          stitchAlphabetId: selectedStitchAlphabetId
+        }
+      : {
+          text,
+          fontFamily: currentFamily,
+          fontSize,
+          color: chosenColorHex,
+          bold: isBold,
+          italic: isItalic,
+          align: alignment,
+          letterSpacing: letterSpacingGoogle,
+          lineHeight: lineSpacingGoogle,
+          threshold,
+          fontType: 'google' as const
+        };
+
     let targetLayerId = $editingTextLayerId;
     if (!targetLayerId) {
-      targetLayerId = addTextLayer({
-        text,
-        fontFamily: currentFamily,
-        fontSize,
-        color: chosenColorHex,
-        bold: isBold,
-        italic: isItalic,
-        align: alignment,
-        threshold
-      });
+      targetLayerId = addTextLayer(payload);
     } else {
-      updateTextLayer(targetLayerId, {
-        text,
-        fontFamily: currentFamily,
-        fontSize,
-        color: chosenColorHex,
-        bold: isBold,
-        italic: isItalic,
-        align: alignment,
-        threshold
-      });
+      updateTextLayer(targetLayerId, payload);
     }
 
     quickDigitizeTextLayer(targetLayerId);
@@ -367,6 +432,28 @@
       <div class="flex-1 overflow-y-auto grid grid-cols-1 lg:grid-cols-12 gap-5 p-5">
         <!-- Left: Text Input & Typography Controls (5 cols) -->
         <div class="lg:col-span-5 space-y-4 flex flex-col">
+          <!-- Typography Mode Switcher -->
+          <div class="flex items-center space-x-1 bg-[#1a1a24] p-1 rounded-xl border border-gray-700/80">
+            <button
+              type="button"
+              class="flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center justify-center space-x-1.5
+              {fontMode === 'stitch' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 hover:text-white'}"
+              on:click={() => (fontMode = 'stitch')}
+            >
+              <Sparkles size={13} />
+              <span>Stitch Alphabets (1:1)</span>
+            </button>
+            <button
+              type="button"
+              class="flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center justify-center space-x-1.5
+              {fontMode === 'google' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 hover:text-white'}"
+              on:click={() => (fontMode = 'google')}
+            >
+              <Type size={13} />
+              <span>Google Vector Fonts</span>
+            </button>
+          </div>
+
           <!-- Text Input Area -->
           <div>
             <label for="text-input" class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
@@ -376,10 +463,69 @@
               id="text-input"
               bind:value={text}
               rows="3"
-              placeholder="Enter lettering or craft glyphs..."
+              placeholder="Enter lettering to stitch..."
               class="w-full bg-[#242432] border border-gray-700 rounded-xl p-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 font-sans shadow-inner resize-y"
             ></textarea>
           </div>
+
+          {#if fontMode === 'stitch'}
+            <!-- Hand-Charted Stitch Alphabets Grid -->
+            <div class="space-y-1.5">
+              <span class="text-xs font-semibold uppercase tracking-wider text-gray-400">
+                Hand-Charted Alphabets
+              </span>
+              <div class="grid grid-cols-2 gap-2">
+                {#each STITCH_ALPHABETS as alpha}
+                  <button
+                    type="button"
+                    class="p-2.5 rounded-xl border text-left transition-all cursor-pointer
+                    {selectedStitchAlphabetId === alpha.id
+                      ? 'bg-indigo-950/70 border-indigo-500 text-white ring-1 ring-indigo-500'
+                      : 'bg-[#22222e] border-gray-800 text-gray-300 hover:bg-[#282836]'}"
+                    on:click={() => (selectedStitchAlphabetId = alpha.id)}
+                  >
+                    <div class="flex items-center justify-between mb-1">
+                      <span class="font-bold text-xs text-white truncate">{alpha.name}</span>
+                      <span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-900/60 text-indigo-300 font-mono font-semibold">{alpha.height} st</span>
+                    </div>
+                    <div class="text-[10px] text-gray-400 line-clamp-2 leading-relaxed">{alpha.description}</div>
+                  </button>
+                {/each}
+              </div>
+            </div>
+
+            <!-- Kerning (Letter Spacing) & Line Spacing in Stitches -->
+            <div class="grid grid-cols-2 gap-3 bg-[#20202c] border border-gray-800 rounded-xl p-3">
+              <div>
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-xs text-gray-300 font-medium">Letter Spacing</span>
+                  <span class="font-mono text-indigo-400 font-bold text-xs">{letterSpacingStitches} st</span>
+                </div>
+                <input
+                  type="range"
+                  min="-2"
+                  max="8"
+                  step="1"
+                  bind:value={letterSpacingStitches}
+                  class="w-full accent-indigo-500 cursor-pointer h-1.5 bg-gray-700 rounded"
+                />
+              </div>
+              <div>
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-xs text-gray-300 font-medium">Line Spacing</span>
+                  <span class="font-mono text-indigo-400 font-bold text-xs">{lineSpacingStitches} st</span>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="8"
+                  step="1"
+                  bind:value={lineSpacingStitches}
+                  class="w-full accent-indigo-500 cursor-pointer h-1.5 bg-gray-700 rounded"
+                />
+              </div>
+            </div>
+          {:else}
 
           <!-- Font Family Custom Dropdown with Real Typeface Previews -->
           <div class="relative">
@@ -632,8 +778,41 @@
             </div>
           </div>
 
-          <!-- Style & Alignment Row -->
-          <div class="flex items-center justify-between">
+          <!-- Kerning & Line Height for Google Fonts -->
+          <div class="grid grid-cols-2 gap-3 bg-[#20202c] border border-gray-800 rounded-xl p-3">
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-xs text-gray-300 font-medium">Letter Spacing</span>
+                <span class="font-mono text-indigo-400 font-bold text-xs">{letterSpacingGoogle}px</span>
+              </div>
+              <input
+                type="range"
+                min="-2"
+                max="12"
+                step="1"
+                bind:value={letterSpacingGoogle}
+                class="w-full accent-indigo-500 cursor-pointer h-1.5 bg-gray-700 rounded"
+              />
+            </div>
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-xs text-gray-300 font-medium">Line Height</span>
+                <span class="font-mono text-indigo-400 font-bold text-xs">{lineSpacingGoogle}×</span>
+              </div>
+              <input
+                type="range"
+                min="0.9"
+                max="2.2"
+                step="0.05"
+                bind:value={lineSpacingGoogle}
+                class="w-full accent-indigo-500 cursor-pointer h-1.5 bg-gray-700 rounded"
+              />
+            </div>
+          </div>
+        {/if}
+
+        <!-- Style & Alignment Row -->
+        <div class="flex items-center justify-between">
             <!-- Bold / Italic -->
             <div class="flex items-center space-x-1 bg-[#1a1a24] p-1 rounded-lg border border-gray-700/60">
               <button

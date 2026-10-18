@@ -50,7 +50,8 @@
     clearPasteboardStitches,
     patternBounds,
     initialSaveTab,
-    loadCompleteProject
+    loadCompleteProject,
+    isImageUrlModalOpen
   } from '../stores/editorStore';
   import { parseOxsXml } from '../engine/oxsExport';
   import { SAMPLE_IMAGES } from '../data/sampleImages';
@@ -59,6 +60,7 @@
     FolderOpen,
     Save,
     Printer,
+    Globe,
     Maximize2,
     Undo2,
     Redo2,
@@ -270,6 +272,16 @@
           <div class="flex items-center space-x-2">
             <ImageIcon size={14} class="text-cyan-400" />
             <span>Import Image Layer...</span>
+          </div>
+        </button>
+
+        <button
+          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-cyan-600 hover:text-white transition-colors"
+          on:click={() => { closeMenu(); isImageUrlModalOpen.set(true); }}
+        >
+          <div class="flex items-center space-x-2">
+            <Globe size={14} class="text-cyan-400" />
+            <span>Import Image from URL...</span>
           </div>
         </button>
 

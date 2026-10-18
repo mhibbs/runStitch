@@ -14,7 +14,8 @@
     openTextModal,
     hideNonStitchLayers,
     toggleHideNonStitchLayers,
-    rasterizeTextLayerToStitches
+    rasterizeTextLayerToStitches,
+    isImageUrlModalOpen
   } from '../stores/editorStore';
   import { SAMPLE_IMAGES } from '../data/sampleImages';
   import {
@@ -35,6 +36,7 @@
     Image as ImageIcon,
     Sparkles,
     Upload,
+    Globe,
     ChevronDown,
     Type
   } from 'lucide-svelte';
@@ -322,6 +324,19 @@
               <div>
                 <div class="font-medium">Upload Image File...</div>
                 <div class="text-[10px] text-gray-400">PNG, JPG, WebP, SVG</div>
+              </div>
+            </button>
+
+            <!-- 4. Reference Image: From Web URL -->
+            <button
+              type="button"
+              class="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-cyan-600 hover:text-white transition-colors cursor-pointer text-left"
+              on:click={() => { showNewLayerMenu = false; isImageUrlModalOpen.set(true); }}
+            >
+              <Globe size={14} class="text-cyan-400" />
+              <div>
+                <div class="font-medium">From Image URL...</div>
+                <div class="text-[10px] text-gray-400">Web image address or paste (Cmd+V)</div>
               </div>
             </button>
 

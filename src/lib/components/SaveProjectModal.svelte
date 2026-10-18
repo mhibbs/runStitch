@@ -13,7 +13,7 @@
     measurementUnit,
     formatDimensions
   } from '../stores/editorStore';
-  import { generatePrintReadyPdf, getArtboardStitchData } from '../engine/pdfExport';
+  import { generatePrintReadyPdf, printPdfDirectly, getArtboardStitchData } from '../engine/pdfExport';
   import { exportToOxs, downloadOxsFile, parseOxsXml } from '../engine/oxsExport';
   import {
     FileText,
@@ -43,7 +43,12 @@
   let includeFlossKey = true;
   let includeMockup = true;
   let paginateLarge = true;
+  let marginSize: 'minimal' | 'narrow' | 'standard' = 'standard';
+  let gridDensity: 'compact' | 'standard' | 'large_print' = 'standard';
+  let includeHeaderFooter = true;
+  let skeinYield = 2000;
   let isGeneratingPdf = false;
+  let isPrintingPdf = false;
   let pdfSuccessMsg = '';
 
   // File Names
@@ -86,7 +91,11 @@
           includeCover,
           includeFlossKey,
           includeMockup,
-          paginateLarge
+          paginateLarge,
+          marginSize,
+          gridDensity,
+          includeHeaderFooter,
+          skeinYield
         }
       );
       pdfSuccessMsg = 'PDF Chart generated and downloaded successfully!';
@@ -98,6 +107,42 @@
       alert('Error generating PDF chart. Please check console for details.');
     } finally {
       isGeneratingPdf = false;
+    }
+  }
+
+  async function handlePrintDirectly() {
+    isPrintingPdf = true;
+    pdfSuccessMsg = '';
+    try {
+      await printPdfDirectly(
+        $grid,
+        $layers,
+        $palette,
+        $fabricColor,
+        {
+          title: pdfTitle || $projectName,
+          author: pdfAuthor,
+          notes: pdfNotes,
+          chartStyle,
+          includeCover,
+          includeFlossKey,
+          includeMockup,
+          paginateLarge,
+          marginSize,
+          gridDensity,
+          includeHeaderFooter,
+          skeinYield
+        }
+      );
+      pdfSuccessMsg = 'Preparing print dialog...';
+      setTimeout(() => {
+        pdfSuccessMsg = '';
+      }, 4000);
+    } catch (err) {
+      console.error('Failed to print PDF chart directly:', err);
+      alert('Error printing PDF chart. Please check console for details.');
+    } finally {
+      isPrintingPdf = false;
     }
   }
 
@@ -348,6 +393,60 @@
                   />
                   <span>Auto-Paginate Large Patterns</span>
                 </label>
+
+                <label class="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    bind:checked={includeHeaderFooter}
+                    class="rounded bg-gray-800 border-gray-700 text-indigo-600 accent-indigo-500"
+                  />
+                  <span>Header, Coordinates & Page Map</span>
+                </label>
+              </div>
+
+              <!-- Page Margins & Grid Density Row -->
+              <div class="pt-2.5 border-t border-gray-700/40 grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+                <div>
+                  <label for="pdf-margins-select" class="block text-gray-400 text-[11px] font-medium mb-1">Page Borders / Margins</label>
+                  <select
+                    id="pdf-margins-select"
+                    bind:value={marginSize}
+                    class="w-full bg-[#181824] border border-gray-700 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="minimal">Minimal (6 mm)</option>
+                    <option value="narrow">Narrow (10 mm)</option>
+                    <option value="standard">Standard (14 mm)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label for="pdf-density-select" class="block text-gray-400 text-[11px] font-medium mb-1">Chart Grid Density</label>
+                  <select
+                    id="pdf-density-select"
+                    bind:value={gridDensity}
+                    class="w-full bg-[#181824] border border-gray-700 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="compact">Compact (~2.8 mm/cell)</option>
+                    <option value="standard">Standard (~3.4 mm/cell)</option>
+                    <option value="large_print">Large Print (~4.5 mm/cell)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label for="pdf-skein-yield-input" class="block text-gray-400 text-[11px] font-medium mb-1">Stitches / Skein Yield</label>
+                  <div class="relative">
+                    <input
+                      id="pdf-skein-yield-input"
+                      type="number"
+                      bind:value={skeinYield}
+                      min="500"
+                      max="10000"
+                      step="100"
+                      class="w-full bg-[#181824] border border-gray-700 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-indigo-500"
+                    />
+                    <span class="absolute right-2 top-1.5 text-[10px] text-gray-500 pointer-events-none">st</span>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -500,20 +599,37 @@
 
         <div>
           {#if activeTab === 'pdf'}
-            <button
-              type="button"
-              class="px-5 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-medium transition-all shadow-md flex items-center space-x-2 cursor-pointer disabled:opacity-50"
-              disabled={isGeneratingPdf}
-              on:click={handleGeneratePdf}
-            >
-              {#if isGeneratingPdf}
-                <Loader2 size={14} class="animate-spin" />
-                <span>Generating PDF...</span>
-              {:else}
-                <Printer size={14} />
-                <span>Download Print-Ready PDF</span>
-              {/if}
-            </button>
+            <div class="flex items-center space-x-2.5">
+              <button
+                type="button"
+                class="px-4 py-2 rounded-xl bg-[#28283c] hover:bg-[#34344d] border border-gray-700 text-gray-200 text-xs font-medium transition-all shadow-sm flex items-center space-x-2 cursor-pointer disabled:opacity-50"
+                disabled={isPrintingPdf || isGeneratingPdf}
+                on:click={handlePrintDirectly}
+              >
+                {#if isPrintingPdf}
+                  <Loader2 size={14} class="animate-spin text-indigo-400" />
+                  <span>Preparing Print...</span>
+                {:else}
+                  <Printer size={14} class="text-indigo-400" />
+                  <span>Print Directly</span>
+                {/if}
+              </button>
+
+              <button
+                type="button"
+                class="px-5 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-medium transition-all shadow-md flex items-center space-x-2 cursor-pointer disabled:opacity-50"
+                disabled={isGeneratingPdf || isPrintingPdf}
+                on:click={handleGeneratePdf}
+              >
+                {#if isGeneratingPdf}
+                  <Loader2 size={14} class="animate-spin" />
+                  <span>Generating PDF...</span>
+                {:else}
+                  <Download size={14} />
+                  <span>Download PDF Chart</span>
+                {/if}
+              </button>
+            </div>
           {:else if activeTab === 'oxs'}
             <button
               type="button"

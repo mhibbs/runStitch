@@ -502,7 +502,7 @@ export function renderOverlay(
     if (activeImageLayer.type === 'text' && activeImageLayer.textData) {
       const td = activeImageLayer.textData;
       ctx.save();
-      ctx.globalAlpha = 0.22;
+      ctx.globalAlpha = 0.28;
       const fontPx = td.fontSize * zoom;
       ctx.font = `${td.italic ? 'italic ' : ''}${td.bold ? 'bold ' : ''}${fontPx}px "${td.fontFamily}", sans-serif`;
       ctx.fillStyle = '#06B6D4';
@@ -510,9 +510,21 @@ export function renderOverlay(
       ctx.textBaseline = 'top';
       const lines = td.text.split('\n');
       const lineStep = fontPx * (td.lineHeight ?? 1.25);
-      const textX = td.align === 'center' ? 0 : (td.align === 'right' ? hw - 2 : -hw + 2);
+
+      const padLeftScaled = (td.padLeft || 0) * zoom;
+      const padTopScaled = (td.padTop || 0) * zoom;
+      const padRightScaled = (td.padRight !== undefined ? td.padRight : (td.padLeft || 0)) * zoom;
+      const nominalW = td.nominalWidth ? td.nominalWidth * zoom : Math.max(10, hw * 2 - padLeftScaled - padRightScaled);
+
+      let textX = -hw + padLeftScaled;
+      if (td.align === 'center') {
+        textX = -hw + padLeftScaled + nominalW / 2;
+      } else if (td.align === 'right') {
+        textX = -hw + padLeftScaled + nominalW;
+      }
+
       for (let i = 0; i < lines.length; i++) {
-        ctx.fillText(lines[i], textX, -hh + i * lineStep);
+        ctx.fillText(lines[i], textX, -hh + padTopScaled + i * lineStep);
       }
       ctx.restore();
     }

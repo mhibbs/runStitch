@@ -12,6 +12,10 @@ export interface PdfExportOptions {
   includeMockup: boolean;
   paginateLarge: boolean;
   pageSize?: 'a4' | 'letter';
+  marginSize?: 'minimal' | 'narrow' | 'standard'; // 6mm, 10mm, 14mm
+  includeHeaderFooter?: boolean; // toggle page overview header/footer
+  gridDensity?: 'compact' | 'standard' | 'large_print'; // 2.8mm, 3.5mm, 4.6mm
+  skeinYield?: number; // stitches per skein (default 2000)
 }
 
 /**
@@ -387,15 +391,35 @@ export function renderChartPageCanvas(
 }
 
 /**
- * Generates and downloads a complete, professional, print-ready PDF chart.
+ * Renders an offscreen high-resolution square canvas for a Unicode symbol to embed in jsPDF
+ * avoiding font encoding limitations with non-ASCII glyphs.
  */
-export async function generatePrintReadyPdf(
+function renderSymbolCanvas(symbol: string, textColor: string = '#000000'): string {
+  const canvas = document.createElement('canvas');
+  canvas.width = 48;
+  canvas.height = 48;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.clearRect(0, 0, 48, 48);
+    ctx.fillStyle = textColor;
+    ctx.font = 'bold 30px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(symbol || '●', 24, 25);
+  }
+  return canvas.toDataURL('image/png');
+}
+
+/**
+ * Compiles and builds the full jsPDF document instance with all configured pages.
+ */
+export async function createPdfDocument(
   grid: GridDimensions,
   layers: Layer[],
   palette: PaletteColor[],
   fabricColorHex: string,
   options: PdfExportOptions
-): Promise<void> {
+): Promise<jsPDF> {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -404,7 +428,9 @@ export async function generatePrintReadyPdf(
 
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
-  const margin = 14; // 14mm margins
+  
+  // Margins: minimal (6mm), narrow (10mm), standard (14mm)
+  const margin = options.marginSize === 'minimal' ? 6 : options.marginSize === 'narrow' ? 10 : 14;
   const contentWidth = pageWidth - margin * 2;
 
   const data = getArtboardStitchData(grid, layers, palette);
@@ -444,7 +470,7 @@ export async function generatePrintReadyPdf(
     // Mockup Hero Box
     const mockupCanvas = renderMockupCanvas(grid, data.artboardStitches, palette, fabricColorHex, 800);
     const maxMockupW = contentWidth;
-    const maxMockupH = 100;
+    const maxMockupH = 96;
     const aspect = mockupCanvas.width / mockupCanvas.height;
     let mW = maxMockupW;
     let mH = mW / aspect;
@@ -453,7 +479,7 @@ export async function generatePrintReadyPdf(
       mW = mH * aspect;
     }
     const mX = margin + (contentWidth - mW) / 2;
-    const mY = 36;
+    const mY = 34;
 
     // Soft drop shadow / border around mockup
     doc.setFillColor(243, 244, 246);
@@ -461,11 +487,12 @@ export async function generatePrintReadyPdf(
     doc.addImage(mockupCanvas.toDataURL('image/jpeg', 0.92), 'JPEG', mX, mY, mW, mH);
 
     // Metadata Card
-    const cardY = mY + mH + 10;
+    const cardY = mY + mH + 8;
+    const cardH = 58;
     doc.setFillColor(248, 250, 252);
     doc.setDrawColor(203, 213, 225);
     doc.setLineWidth(0.4);
-    doc.roundedRect(margin, cardY, contentWidth, 54, 3, 3, 'FD');
+    doc.roundedRect(margin, cardY, contentWidth, cardH, 3, 3, 'FD');
 
     doc.setTextColor(30, 41, 59);
     doc.setFont('helvetica', 'bold');
@@ -491,12 +518,16 @@ export async function generatePrintReadyPdf(
     doc.setTextColor(15, 23, 42);
     doc.text(`${grid.fabricCount} count Aida`, col1X + 32, cardY + 26);
 
+    // Design Size split across two lines so it fits comfortably
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(71, 85, 105);
     doc.text(`Design Size:`, col1X, cardY + 34);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(15, 23, 42);
-    doc.text(`${inWidth}″ × ${inHeight}″ (${cmWidth} × ${cmHeight} cm)`, col1X + 32, cardY + 34);
+    doc.text(`${inWidth}″ × ${inHeight}″`, col1X + 32, cardY + 34);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text(`(${cmWidth} × ${cmHeight} cm)`, col1X + 32, cardY + 41);
 
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(71, 85, 105);
@@ -526,15 +557,15 @@ export async function generatePrintReadyPdf(
       doc.text(
         `* ${data.pasteboardStitches} staging stitches outside the pattern artboard excluded from chart.`,
         col1X,
-        cardY + 46
+        cardY + 50
       );
     }
 
     // Stitching Instructions & Tips Box
-    const instY = cardY + 62;
+    const instY = cardY + cardH + 6;
     doc.setFillColor(254, 249, 195); // Pale Amber (#FEF9C3)
     doc.setDrawColor(252, 211, 77);
-    doc.roundedRect(margin, instY, contentWidth, 36, 2, 2, 'FD');
+    doc.roundedRect(margin, instY, contentWidth, 34, 2, 2, 'FD');
 
     doc.setTextColor(146, 64, 14);
     doc.setFont('helvetica', 'bold');
@@ -547,23 +578,23 @@ export async function generatePrintReadyPdf(
     doc.text(
       '• Use 2 strands of embroidery floss over 1 fabric square for full cross-stitches.',
       margin + 6,
-      instY + 14
+      instY + 13
     );
     doc.text(
       '• Locate the red arrows at the chart borders to start stitching from the exact pattern center.',
       margin + 6,
-      instY + 20
+      instY + 19
     );
     doc.text(
       '• Allow an extra 3 inches (7.5 cm) of fabric border on all four sides for framing and finishing.',
       margin + 6,
-      instY + 26
+      instY + 25
     );
 
     // Footer
     doc.setFontSize(7);
     doc.setTextColor(148, 163, 184);
-    doc.text('XStitcher Studio • Professional Cross-Stitch Publishing System', margin, pageHeight - 10);
+    doc.text('XStitcher Studio • Professional Cross-Stitch Publishing System', margin, pageHeight - 8);
 
     isFirstPage = false;
   }
@@ -584,7 +615,7 @@ export async function generatePrintReadyPdf(
     doc.text(`${title} — Floss Legend & Skein Estimator`, margin, 13);
 
     // Table Columns
-    const startY = 30;
+    const startY = 28;
     const rowH = 7.2;
 
     const colSym = margin;
@@ -614,11 +645,13 @@ export async function generatePrintReadyPdf(
     doc.text('Skein Estimate', colSkeins, startY + 5.5);
 
     let curY = startY + 8;
+    const skeinYield = Math.max(500, options.skeinYield || 2000);
+    const symbolImgCache = new Map<string, string>();
 
     for (let i = 0; i < data.usedColors.length; i++) {
       const color = data.usedColors[i];
       const count = data.colorCounts.get(color.id) || 0;
-      const skeins = Math.max(1, Math.ceil(count / 1800));
+      const skeins = Math.max(1, Math.ceil(count / skeinYield));
 
       // Page overflow check
       if (curY + rowH > pageHeight - 16) {
@@ -637,14 +670,17 @@ export async function generatePrintReadyPdf(
       doc.setLineWidth(0.2);
       doc.line(margin, curY + rowH, margin + contentWidth, curY + rowH);
 
-      // 1. Symbol Box
+      // 1. Symbol Box with canvas-rendered PNG image to completely eliminate % escape glitches
       doc.setFillColor(255, 255, 255);
       doc.setDrawColor(156, 163, 175);
       doc.rect(colSym + 1, curY + 1.2, 5, 5, 'FD');
-      doc.setTextColor(0, 0, 0);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.text(color.symbol, colSym + 3.5, curY + 4.8, { align: 'center' });
+
+      let symDataUrl = symbolImgCache.get(color.symbol);
+      if (!symDataUrl) {
+        symDataUrl = renderSymbolCanvas(color.symbol, '#000000');
+        symbolImgCache.set(color.symbol, symDataUrl);
+      }
+      doc.addImage(symDataUrl, 'PNG', colSym + 1.2, curY + 1.2, 5, 5);
 
       // 2. Swatch Color Box
       const [r, g, b] = hexToRgb(color.hex);
@@ -688,7 +724,7 @@ export async function generatePrintReadyPdf(
       doc.setFont('helvetica', 'italic');
       doc.setTextColor(148, 163, 184);
       doc.text(
-        '* Skein estimation based on standard 8-meter 6-strand cotton floss skeins with 2 strands on 14-count fabric (~1,800 stitches/skein).',
+        `* Skein estimation based on standard 8-meter cotton floss skeins with 2 strands (~${skeinYield.toLocaleString()} stitches/skein).`,
         margin,
         curY
       );
@@ -698,13 +734,25 @@ export async function generatePrintReadyPdf(
   // ==========================================
   // PAGE 3+: CROSS-STITCH CHART PAGES
   // ==========================================
-  // Maximum stitches per chart page to keep cells comfortably readable (~3.2mm - 3.8mm per cell)
-  const maxStitchesPerCol = options.paginateLarge ? 55 : grid.width;
-  const maxStitchesPerRow = options.paginateLarge ? 70 : grid.height;
+  const showHeaderFooter = options.includeHeaderFooter !== false;
+  const topHeaderH = showHeaderFooter ? 16 : 0;
+  const bottomFooterH = showHeaderFooter ? 14 : 0;
+
+  // Grid density physical cell size in millimeters on printed page
+  const cellMm = options.gridDensity === 'compact' ? 2.8 : options.gridDensity === 'large_print' ? 4.5 : 3.4;
+  const borderMarginRatio = 40 / 28; // borderMargin (40) / cellPx (28)
+  const borderMarginMm = cellMm * borderMarginRatio;
+
+  // Compute maximum stitch columns and rows that fit inside the page content area at this cell size
+  const maxAvailableTileW = contentWidth - borderMarginMm * 2;
+  const maxAvailableTileH = (pageHeight - margin * 2 - topHeaderH - bottomFooterH) - borderMarginMm * 2;
+
+  const maxStitchesPerCol = options.paginateLarge ? Math.max(15, Math.floor(maxAvailableTileW / cellMm)) : grid.width;
+  const maxStitchesPerRow = options.paginateLarge ? Math.max(15, Math.floor(maxAvailableTileH / cellMm)) : grid.height;
   const overlap = options.paginateLarge ? 3 : 0; // 3 stitches shaded overlap between pages
 
-  const numCols = Math.ceil(grid.width / (maxStitchesPerCol - overlap));
-  const numRows = Math.ceil(grid.height / (maxStitchesPerRow - overlap));
+  const numCols = Math.ceil(grid.width / Math.max(1, maxStitchesPerCol - overlap));
+  const numRows = Math.ceil(grid.height / Math.max(1, maxStitchesPerRow - overlap));
   const totalChartPages = numCols * numRows;
 
   let pageNum = 0;
@@ -723,24 +771,29 @@ export async function generatePrintReadyPdf(
       const endY = Math.min(grid.height, startY + maxStitchesPerRow);
       const overlapStartY = rIdx > 0 ? startY + overlap : startY;
 
-      // Page Header
-      doc.setFillColor(30, 27, 75);
-      doc.rect(0, 0, pageWidth, 16, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10);
-      const sectionName = totalChartPages > 1 ? ` (Page ${pageNum} of ${totalChartPages})` : '';
-      doc.text(`${title} — Chart${sectionName}`, margin, 11);
+      const cols = endX - startX;
+      const rows = endY - startY;
 
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(203, 213, 225);
-      doc.text(
-        `Stitches: [${startX + 1}..${endX}] × [${startY + 1}..${endY}] • ${options.chartStyle === 'color_symbols' ? 'Color Symbols' : 'Black & White Chart'}`,
-        pageWidth - margin,
-        11,
-        { align: 'right' }
-      );
+      // Page Header (if enabled)
+      if (showHeaderFooter) {
+        doc.setFillColor(30, 27, 75);
+        doc.rect(0, 0, pageWidth, 16, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        const sectionName = totalChartPages > 1 ? ` (Page ${pageNum} of ${totalChartPages})` : '';
+        doc.text(`${title} — Chart${sectionName}`, margin, 11);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(203, 213, 225);
+        doc.text(
+          `Stitches: [${startX + 1}..${endX}] × [${startY + 1}..${endY}] • ${options.chartStyle === 'color_symbols' ? 'Color Symbols' : 'Black & White Chart'}`,
+          pageWidth - margin,
+          11,
+          { align: 'right' }
+        );
+      }
 
       // Render the chart canvas tile
       const chartCanvas = renderChartPageCanvas(
@@ -756,56 +809,53 @@ export async function generatePrintReadyPdf(
         overlapStartY
       );
 
-      // Scale to fit printable page area
-      const maxPrintW = contentWidth;
-      const maxPrintH = pageHeight - 34; // 16mm header + margin + footer
-      const aspect = chartCanvas.width / chartCanvas.height;
+      // Enforce UNIFORM physical mm cell scale across all pages (including remnants)
+      // Every stitch is EXACTLY cellMm wide and tall on paper!
+      const pW = cols * cellMm + borderMarginMm * 2;
+      const pH = rows * cellMm + borderMarginMm * 2;
 
-      let pW = maxPrintW;
-      let pH = pW / aspect;
-      if (pH > maxPrintH) {
-        pH = maxPrintH;
-        pW = pH * aspect;
-      }
-
+      // Center within the printable chart area
       const pX = margin + (contentWidth - pW) / 2;
-      const pY = 20 + (maxPrintH - pH) / 2;
+      const availableTileAreaH = pageHeight - margin * 2 - topHeaderH - bottomFooterH;
+      const pY = margin + topHeaderH + (availableTileAreaH - pH) / 2;
 
       doc.addImage(chartCanvas.toDataURL('image/png'), 'PNG', pX, pY, pW, pH);
 
-      // Page Footer with Mini Page Grid Map
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(148, 163, 184);
-      doc.text(
-        '▲ Red arrows indicate pattern center. Gray shaded cells overlap adjacent pages.',
-        margin,
-        pageHeight - 6
-      );
+      // Page Footer with Mini Page Grid Map (if enabled)
+      if (showHeaderFooter) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text(
+          '▲ Red arrows indicate pattern center. Gray shaded cells overlap adjacent pages.',
+          margin,
+          pageHeight - 6
+        );
 
-      if (totalChartPages > 1) {
-        // Draw tiny overview thumbnail in lower right corner
-        const mapW = 12;
-        const mapH = 12;
-        const mapX = pageWidth - margin - mapW;
-        const mapY = pageHeight - mapH - 4;
+        if (totalChartPages > 1) {
+          // Draw tiny overview thumbnail in lower right corner
+          const mapW = 12;
+          const mapH = 12;
+          const mapX = pageWidth - margin - mapW;
+          const mapY = pageHeight - mapH - 4;
 
-        doc.setDrawColor(156, 163, 175);
-        doc.setLineWidth(0.2);
+          doc.setDrawColor(156, 163, 175);
+          doc.setLineWidth(0.2);
 
-        for (let ri = 0; ri < numRows; ri++) {
-          for (let ci = 0; ci < numCols; ci++) {
-            const cellX = mapX + (ci * mapW) / numCols;
-            const cellY = mapY + (ri * mapH) / numRows;
-            const cWidth = mapW / numCols;
-            const cHeight = mapH / numRows;
+          for (let ri = 0; ri < numRows; ri++) {
+            for (let ci = 0; ci < numCols; ci++) {
+              const cellX = mapX + (ci * mapW) / numCols;
+              const cellY = mapY + (ri * mapH) / numRows;
+              const cWidth = mapW / numCols;
+              const cHeight = mapH / numRows;
 
-            if (ri === rIdx && ci === cIdx) {
-              doc.setFillColor(99, 102, 241); // Active indigo
-              doc.rect(cellX, cellY, cWidth, cHeight, 'FD');
-            } else {
-              doc.setFillColor(243, 244, 246);
-              doc.rect(cellX, cellY, cWidth, cHeight, 'FD');
+              if (ri === rIdx && ci === cIdx) {
+                doc.setFillColor(99, 102, 241); // Active indigo
+                doc.rect(cellX, cellY, cWidth, cHeight, 'FD');
+              } else {
+                doc.setFillColor(243, 244, 246);
+                doc.rect(cellX, cellY, cWidth, cHeight, 'FD');
+              }
             }
           }
         }
@@ -813,9 +863,58 @@ export async function generatePrintReadyPdf(
     }
   }
 
-  // Save the generated PDF
-  const cleanName = title.replace(/[^a-zA-Z0-9_\-]/g, '_');
+  return doc;
+}
+
+/**
+ * Generates and downloads a complete, professional, print-ready PDF chart.
+ */
+export async function generatePrintReadyPdf(
+  grid: GridDimensions,
+  layers: Layer[],
+  palette: PaletteColor[],
+  fabricColorHex: string,
+  options: PdfExportOptions
+): Promise<void> {
+  const doc = await createPdfDocument(grid, layers, palette, fabricColorHex, options);
+  const cleanName = (options.title?.trim() || 'Cross_Stitch').replace(/[^a-zA-Z0-9_\-]/g, '_');
   doc.save(`${cleanName}_Chart.pdf`);
+}
+
+/**
+ * Generates the PDF document and immediately opens the native browser print dialog.
+ */
+export async function printPdfDirectly(
+  grid: GridDimensions,
+  layers: Layer[],
+  palette: PaletteColor[],
+  fabricColorHex: string,
+  options: PdfExportOptions
+): Promise<void> {
+  const doc = await createPdfDocument(grid, layers, palette, fabricColorHex, options);
+  doc.autoPrint();
+  const blob = doc.output('blob');
+  const blobUrl = URL.createObjectURL(blob);
+
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  iframe.src = blobUrl;
+  document.body.appendChild(iframe);
+
+  iframe.onload = () => {
+    try {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+    } catch (e) {
+      console.warn('Direct iframe print failed, falling back to window.open', e);
+      window.open(blobUrl, '_blank');
+    }
+  };
 }
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -826,3 +925,4 @@ function hexToRgb(hex: string): [number, number, number] {
   const num = parseInt(c, 16);
   return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
 }
+

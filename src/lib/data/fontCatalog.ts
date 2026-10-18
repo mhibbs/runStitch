@@ -20,34 +20,25 @@ export const FONT_CATEGORIES = [
   { id: 'modern', label: 'Modern Sans' }
 ] as const;
 
-// 1 Curated Font per Category as the primary defaults requested by user
+// Curated Fonts with genuine typography first
 export const DEFAULT_CURATED_FONTS: CuratedFont[] = [
   {
-    name: 'Yarndings 20',
-    family: 'Yarndings 20',
-    category: 'craft',
-    description: 'Needlework, embroidery, and knitting icon glyphs',
-    googleFontQuery: 'family=Yarndings+20',
-    sampleText: 'abcdefghijk',
-    suggestedSize: 20
+    name: 'Pixelify Sans',
+    family: 'Pixelify Sans',
+    category: 'pixel',
+    description: 'Modern high-resolution pixel typography with clean letterforms',
+    googleFontQuery: 'family=Pixelify+Sans:wght@400..700',
+    sampleText: 'Handmade with Love',
+    suggestedSize: 16
   },
   {
     name: 'Silkscreen',
     family: 'Silkscreen',
     category: 'pixel',
-    description: 'Crisp 8-bit geometric pixel typography',
+    description: 'Crisp 8-bit geometric block typography',
     googleFontQuery: 'family=Silkscreen:wght@400;700',
     sampleText: 'CROSS STITCH',
     suggestedSize: 12
-  },
-  {
-    name: 'Great Vibes',
-    family: 'Great Vibes',
-    category: 'script',
-    description: 'Flowing, graceful cursive sampler calligraphy',
-    googleFontQuery: 'family=Great+Vibes',
-    sampleText: 'Bless This Home',
-    suggestedSize: 24
   },
   {
     name: 'Cinzel',
@@ -57,6 +48,15 @@ export const DEFAULT_CURATED_FONTS: CuratedFont[] = [
     googleFontQuery: 'family=Cinzel:wght@400..700',
     sampleText: 'SAMPLER 2026',
     suggestedSize: 18
+  },
+  {
+    name: 'Great Vibes',
+    family: 'Great Vibes',
+    category: 'script',
+    description: 'Flowing, graceful cursive sampler calligraphy',
+    googleFontQuery: 'family=Great+Vibes',
+    sampleText: 'Bless This Home',
+    suggestedSize: 24
   },
   {
     name: 'Comfortaa',
@@ -70,7 +70,16 @@ export const DEFAULT_CURATED_FONTS: CuratedFont[] = [
 ];
 
 export const EXTENDED_FONTS: CuratedFont[] = [
-  // Craft
+  // Craft & Motifs
+  {
+    name: 'Yarndings 20',
+    family: 'Yarndings 20',
+    category: 'craft',
+    description: 'Needlework, embroidery, and knitting icon glyphs',
+    googleFontQuery: 'family=Yarndings+20',
+    sampleText: 'abcdefghijk',
+    suggestedSize: 20
+  },
   {
     name: 'Yarndings 12',
     family: 'Yarndings 12',
@@ -118,12 +127,12 @@ export const EXTENDED_FONTS: CuratedFont[] = [
     suggestedSize: 18
   },
   {
-    name: 'Pixelify Sans',
-    family: 'Pixelify Sans',
+    name: 'DotGothic16',
+    family: 'DotGothic16',
     category: 'pixel',
-    description: 'Modern high-resolution pixel letterforms',
-    googleFontQuery: 'family=Pixelify+Sans:wght@400..700',
-    sampleText: 'Handmade with Love',
+    description: 'Charming 16x16 pixel gothic bitmap lettering',
+    googleFontQuery: 'family=DotGothic16',
+    sampleText: 'CROSS STITCH ART',
     suggestedSize: 16
   },
   // Script

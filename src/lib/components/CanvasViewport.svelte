@@ -52,6 +52,7 @@
     hideNonStitchLayers,
     updateTextLayer,
     openTextModal,
+    quickDigitizeTextLayer,
     commitLayerStitchesMove,
     undoStack,
     redoStack
@@ -964,11 +965,18 @@
       return;
     }
 
-    // Enter commits floating selection
-    if (e.key === 'Enter' && $floatingSelection) {
-      e.preventDefault();
-      commitFloatingSelection();
-      return;
+    // Enter commits floating selection or finalizes active text layer
+    if (e.key === 'Enter') {
+      if ($floatingSelection) {
+        e.preventDefault();
+        commitFloatingSelection();
+        return;
+      }
+      if ($activeLayer && $activeLayer.type === 'text' && !$activeLayer.locked) {
+        e.preventDefault();
+        quickDigitizeTextLayer($activeLayer.id);
+        return;
+      }
     }
 
     // Escape cancels floating selection, shape drawing, stamp mode, or clears selection
@@ -1463,6 +1471,23 @@
             on:click={cancelFloatingSelection}
           >
             Cancel (Esc)
+          </button>
+        </div>
+      {:else if $activeLayer && $activeLayer.type === 'text' && !$activeLayer.locked}
+        <div class="flex items-center space-x-2 text-purple-300">
+          <span>
+            Text Layer: <strong class="text-white">{$activeLayer.name}</strong> &bull;
+            Drag handles to position &bull;
+            Press <strong class="text-white">Enter</strong> to finalize stitches &bull;
+            Press <strong class="text-white">R</strong> to rotate, <strong class="text-white">H/V</strong> to flip
+          </span>
+          <button
+            type="button"
+            class="text-[10px] bg-purple-600 hover:bg-purple-500 text-white px-2 py-0.5 rounded font-sans font-medium transition-colors shadow-sm cursor-pointer"
+            on:click={() => quickDigitizeTextLayer($activeLayer.id)}
+            title="Finalize to regular stitches (Enter)"
+          >
+            Finalize (Enter)
           </button>
         </div>
       {:else if $selectionBounds}

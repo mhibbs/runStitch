@@ -34,6 +34,7 @@ import {
 } from '../engine/geometry';
 import { convertPaletteToBrand, THREAD_BRANDS } from '../data/threadBrands';
 import { measureTextDimensions, rasterizeTextLayer } from '../data/fontCatalog';
+import { STITCH_ALPHABETS, typesetStitchAlphabet } from '../data/stitchAlphabets';
 
 // Initial state
 const defaultPalette = createDefaultPalette();
@@ -601,6 +602,7 @@ export const isMotifLibraryModalOpen = writable<boolean>(false);
 export const borderInitialMotif = writable<MotifStamp | null>(null);
 export const isTextModalOpen = writable<boolean>(false);
 export const editingTextLayerId = writable<string | null>(null);
+export const isImageUrlModalOpen = writable<boolean>(false);
 export const hideNonStitchLayers = writable<boolean>(false);
 
 export function toggleHideNonStitchLayers() {
@@ -1575,6 +1577,42 @@ export function computeTextLayerStitches(
   gridWidth: number,
   gridHeight: number
 ): Record<string, Stitch> {
+  // 1. Hand-Charted Stitch Alphabet Mode
+  if (textData.fontType === 'stitch_alphabet' && textData.stitchAlphabetId) {
+    const alpha = STITCH_ALPHABETS.find(a => a.id === textData.stitchAlphabetId) || STITCH_ALPHABETS[0];
+    const rendered = typesetStitchAlphabet(alpha, textData.text, {
+      letterSpacing: textData.letterSpacing !== undefined ? textData.letterSpacing : alpha.defaultSpacing,
+      lineSpacing: textData.lineHeight !== undefined ? Math.round(textData.lineHeight) : alpha.defaultLineSpacing,
+      align: textData.align || 'left'
+    });
+
+    const rot = textData.rotation || 0;
+    const rad = (rot * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+
+    const centerX = textData.x + rendered.width / 2;
+    const centerY = textData.y + rendered.height / 2;
+
+    const stitchesMap: Record<string, Stitch> = {};
+    for (const st of rendered.stitches) {
+      const u = st.x - rendered.width / 2;
+      const v = st.y - rendered.height / 2;
+      const uRot = u * cos - v * sin;
+      const vRot = u * sin + v * cos;
+      const gx = Math.round(centerX + uRot);
+      const gy = Math.round(centerY + vRot);
+      if (gx >= -150 && gx < gridWidth + 150 && gy >= -150 && gy < gridHeight + 150) {
+        stitchesMap[`${gx},${gy}`] = {
+          colorId,
+          type: 'full'
+        };
+      }
+    }
+    return stitchesMap;
+  }
+
+  // 2. Google Vector Fonts Rasterization Mode
   const canvas = rasterizeTextLayer(
     textData.text,
     textData.fontFamily,
@@ -1594,27 +1632,18 @@ export function computeTextLayerStitches(
   if (!ctx) return {};
   const sampleW = canvas.width;
   const sampleH = canvas.height;
-  let sampleData = ctx.getImageData(0, 0, sampleW, sampleH).data;
+  const sampleData = ctx.getImageData(0, 0, sampleW, sampleH).data;
 
   const rot = textData.rotation || 0;
-  if (rot % 360 !== 0) {
-    const rotCanvas = document.createElement('canvas');
-    rotCanvas.width = sampleW;
-    rotCanvas.height = sampleH;
-    const rCtx = rotCanvas.getContext('2d');
-    if (rCtx) {
-      rCtx.save();
-      rCtx.translate(sampleW / 2, sampleH / 2);
-      rCtx.rotate((rot * Math.PI) / 180);
-      rCtx.drawImage(canvas, -sampleW / 2, -sampleH / 2);
-      rCtx.restore();
-      sampleData = rCtx.getImageData(0, 0, sampleW, sampleH).data;
-    }
-  }
+  const rad = (rot * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+
+  // Exact center of text layer in grid coordinates (matches image bounding box center)
+  const centerX = (textData.x - padLeft) + sampleW / 2;
+  const centerY = (textData.y - padTop) + sampleH / 2;
 
   const stitchesMap: Record<string, Stitch> = {};
-  const originX = textData.x;
-  const originY = textData.y;
   const thresholdAlpha = Math.round((textData.threshold ?? 0.35) * 255);
 
   for (let y = 0; y < sampleH; y++) {
@@ -1622,8 +1651,12 @@ export function computeTextLayerStitches(
       const idx = (y * sampleW + x) * 4;
       const alpha = sampleData[idx + 3];
       if (alpha > thresholdAlpha) {
-        const gx = originX + x - padLeft;
-        const gy = originY + y - padTop;
+        const u = x - sampleW / 2;
+        const v = y - sampleH / 2;
+        const uRot = u * cos - v * sin;
+        const vRot = u * sin + v * cos;
+        const gx = Math.round(centerX + uRot);
+        const gy = Math.round(centerY + vRot);
         if (gx >= -150 && gx < gridWidth + 150 && gy >= -150 && gy < gridHeight + 150) {
           stitchesMap[`${gx},${gy}`] = {
             colorId,
@@ -1651,28 +1684,67 @@ export function addTextLayer(config: {
   lineHeight?: number;
   letterSpacing?: number;
   threshold?: number;
+  fontType?: 'google' | 'stitch_alphabet';
+  stitchAlphabetId?: string;
 }): string {
   const currentGrid = get(grid);
   const activeClr = get(activeColor);
   const color = config.color || activeClr.hex || '#000000';
   const colorId = getOrAddPaletteColor(color);
 
-  const previewCanvas = rasterizeTextLayer(
-    config.text,
-    config.fontFamily,
-    config.fontSize,
-    color,
-    config.bold,
-    config.italic,
-    config.align || 'left',
-    config.lineHeight ?? 1.25,
-    config.letterSpacing ?? 0
-  );
+  let padLeft = 0;
+  let padTop = 0;
+  let padRight = 0;
+  let nominalWidth = 0;
+  let nominalHeight = 0;
+  let w = 40;
+  let h = 20;
+  let previewDataUrl = '';
 
-  const padLeft = (previewCanvas as any).padLeft || 0;
-  const padTop = (previewCanvas as any).padTop || 0;
-  const w = previewCanvas.width;
-  const h = previewCanvas.height;
+  if (config.fontType === 'stitch_alphabet' && config.stitchAlphabetId) {
+    const alpha = STITCH_ALPHABETS.find(a => a.id === config.stitchAlphabetId) || STITCH_ALPHABETS[0];
+    const rendered = typesetStitchAlphabet(alpha, config.text, {
+      letterSpacing: config.letterSpacing !== undefined ? config.letterSpacing : alpha.defaultSpacing,
+      lineSpacing: config.lineHeight !== undefined ? Math.round(config.lineHeight) : alpha.defaultLineSpacing,
+      align: config.align || 'left'
+    });
+    w = rendered.width;
+    h = rendered.height;
+    nominalWidth = w;
+    nominalHeight = h;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, w);
+    canvas.height = Math.max(1, h);
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = color;
+      for (const st of rendered.stitches) {
+        ctx.fillRect(st.x, st.y, 1, 1);
+      }
+    }
+    previewDataUrl = canvas.toDataURL();
+  } else {
+    const previewCanvas = rasterizeTextLayer(
+      config.text,
+      config.fontFamily,
+      config.fontSize,
+      color,
+      config.bold,
+      config.italic,
+      config.align || 'left',
+      config.lineHeight ?? 1.25,
+      config.letterSpacing ?? 0
+    );
+
+    padLeft = (previewCanvas as any).padLeft || 0;
+    padTop = (previewCanvas as any).padTop || 0;
+    nominalWidth = (previewCanvas as any).nominalWidth || previewCanvas.width;
+    nominalHeight = (previewCanvas as any).nominalHeight || previewCanvas.height;
+    w = previewCanvas.width;
+    h = previewCanvas.height;
+    previewDataUrl = previewCanvas.toDataURL();
+  }
 
   const x = config.x !== undefined ? config.x : Math.max(0, Math.floor((currentGrid.width - (w - padLeft * 2)) / 2));
   const y = config.y !== undefined ? config.y : Math.max(0, Math.floor((currentGrid.height - (h - padTop * 2)) / 2));
@@ -1694,7 +1766,12 @@ export function addTextLayer(config: {
     letterSpacing: config.letterSpacing ?? 0,
     threshold: config.threshold ?? 0.35,
     padLeft,
-    padTop
+    padTop,
+    padRight,
+    nominalWidth,
+    nominalHeight,
+    fontType: config.fontType || 'google',
+    stitchAlphabetId: config.stitchAlphabetId
   };
 
   const initialStitches = computeTextLayerStitches(textData, colorId, currentGrid.width, currentGrid.height);
@@ -1713,9 +1790,9 @@ export function addTextLayer(config: {
     stitches: initialStitches,
     textData,
     image: {
-      src: previewCanvas.toDataURL(),
-      naturalWidth: previewCanvas.width,
-      naturalHeight: previewCanvas.height,
+      src: previewDataUrl,
+      naturalWidth: w,
+      naturalHeight: h,
       x: x - padLeft,
       y: y - padTop,
       width: w,
@@ -1752,27 +1829,67 @@ export function updateTextLayer(layerId: string, updates: Partial<TextLayerData>
   const curGrid = get(grid);
   const colorId = getOrAddPaletteColor(merged.color);
 
-  const previewCanvas = rasterizeTextLayer(
-    merged.text,
-    merged.fontFamily,
-    merged.fontSize,
-    merged.color,
-    merged.bold,
-    merged.italic,
-    merged.align || 'left',
-    merged.lineHeight ?? 1.25,
-    merged.letterSpacing ?? 0
-  );
+  let padLeft = 0;
+  let padTop = 0;
+  let padRight = 0;
+  let nominalWidth = 0;
+  let nominalHeight = 0;
+  let w = 40;
+  let h = 20;
+  let previewDataUrl = '';
 
-  const padLeft = (previewCanvas as any).padLeft || 0;
-  const padTop = (previewCanvas as any).padTop || 0;
-  const w = previewCanvas.width;
-  const h = previewCanvas.height;
+  if (merged.fontType === 'stitch_alphabet' && merged.stitchAlphabetId) {
+    const alpha = STITCH_ALPHABETS.find(a => a.id === merged.stitchAlphabetId) || STITCH_ALPHABETS[0];
+    const rendered = typesetStitchAlphabet(alpha, merged.text, {
+      letterSpacing: merged.letterSpacing !== undefined ? merged.letterSpacing : alpha.defaultSpacing,
+      lineSpacing: merged.lineHeight !== undefined ? Math.round(merged.lineHeight) : alpha.defaultLineSpacing,
+      align: merged.align || 'left'
+    });
+    w = rendered.width;
+    h = rendered.height;
+    nominalWidth = w;
+    nominalHeight = h;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, w);
+    canvas.height = Math.max(1, h);
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = merged.color;
+      for (const st of rendered.stitches) {
+        ctx.fillRect(st.x, st.y, 1, 1);
+      }
+    }
+    previewDataUrl = canvas.toDataURL();
+  } else {
+    const previewCanvas = rasterizeTextLayer(
+      merged.text,
+      merged.fontFamily,
+      merged.fontSize,
+      merged.color,
+      merged.bold,
+      merged.italic,
+      merged.align || 'left',
+      merged.lineHeight ?? 1.25,
+      merged.letterSpacing ?? 0
+    );
+
+    padLeft = (previewCanvas as any).padLeft || 0;
+    padTop = (previewCanvas as any).padTop || 0;
+    nominalWidth = (previewCanvas as any).nominalWidth || previewCanvas.width;
+    nominalHeight = (previewCanvas as any).nominalHeight || previewCanvas.height;
+    w = previewCanvas.width;
+    h = previewCanvas.height;
+    previewDataUrl = previewCanvas.toDataURL();
+  }
 
   merged.width = w;
   merged.height = h;
   merged.padLeft = padLeft;
   merged.padTop = padTop;
+  merged.padRight = padRight;
+  merged.nominalWidth = nominalWidth;
+  merged.nominalHeight = nominalHeight;
 
   const updatedStitches = computeTextLayerStitches(merged, colorId, curGrid.width, curGrid.height);
 
@@ -1787,9 +1904,9 @@ export function updateTextLayer(layerId: string, updates: Partial<TextLayerData>
         stitches: updatedStitches,
         textData: merged,
         image: {
-          src: previewCanvas.toDataURL(),
-          naturalWidth: previewCanvas.width,
-          naturalHeight: previewCanvas.height,
+          src: previewDataUrl,
+          naturalWidth: w,
+          naturalHeight: h,
           x: merged.x - padLeft,
           y: merged.y - padTop,
           width: w,
@@ -1812,6 +1929,47 @@ export function updateTextLayer(layerId: string, updates: Partial<TextLayerData>
     }
   ]);
   redoStack.set([]);
+}
+
+export function rotateTextLayer90(layerId: string, clockwise: boolean = true) {
+  const currentLayers = get(layers);
+  const target = currentLayers.find(l => l.id === layerId);
+  if (!target || target.type !== 'text' || !target.image) return;
+  const currentRot = target.image.rotation || 0;
+  const nextRot = ((currentRot + (clockwise ? 90 : -90)) % 360 + 360) % 360;
+  updateImageLayer(layerId, { rotation: nextRot });
+}
+
+export function flipTextLayerHorizontal(layerId: string) {
+  const currentLayers = get(layers);
+  const target = currentLayers.find(l => l.id === layerId);
+  if (!target || target.type !== 'text') return;
+  const img = target.image;
+  if (!img) return;
+  const centerX = img.x + img.width / 2;
+  const flipped: Record<string, Stitch> = {};
+  for (const [key, stitch] of Object.entries(target.stitches)) {
+    const [x, y] = key.split(',').map(Number);
+    const newX = Math.round(centerX - (x - centerX));
+    flipped[`${newX},${y}`] = { ...stitch };
+  }
+  layers.update(ls => ls.map(l => l.id === layerId ? { ...l, stitches: flipped } : l));
+}
+
+export function flipTextLayerVertical(layerId: string) {
+  const currentLayers = get(layers);
+  const target = currentLayers.find(l => l.id === layerId);
+  if (!target || target.type !== 'text') return;
+  const img = target.image;
+  if (!img) return;
+  const centerY = img.y + img.height / 2;
+  const flipped: Record<string, Stitch> = {};
+  for (const [key, stitch] of Object.entries(target.stitches)) {
+    const [x, y] = key.split(',').map(Number);
+    const newY = Math.round(centerY - (y - centerY));
+    flipped[`${x},${newY}`] = { ...stitch };
+  }
+  layers.update(ls => ls.map(l => l.id === layerId ? { ...l, stitches: flipped } : l));
 }
 
 export function openTextModal(layerId?: string) {

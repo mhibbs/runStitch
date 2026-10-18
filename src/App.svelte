@@ -14,8 +14,10 @@
   import SaveProjectModal from './lib/components/SaveProjectModal.svelte';
   import DigitizerModal from './lib/components/DigitizerModal.svelte';
   import TextModal from './lib/components/TextModal.svelte';
+  import ImageUrlModal from './lib/components/ImageUrlModal.svelte';
   import {
     activeTool,
+    activeLayer,
     undo,
     redo,
     palette,
@@ -40,11 +42,16 @@
     flipActiveStampHorizontal,
     flipActiveStampVertical,
     floatingSelection,
+    commitFloatingSelection,
     rotate90,
     flipHorizontal,
     flipVertical,
     addReferenceImageLayer,
-    openTextModal
+    openTextModal,
+    quickDigitizeTextLayer,
+    rotateTextLayer90,
+    flipTextLayerHorizontal,
+    flipTextLayerVertical
   } from './lib/stores/editorStore';
   import { SwatchBook, Layers as LayersIcon, ChevronDown, ChevronRight, ChevronLeft } from 'lucide-svelte';
 
@@ -213,6 +220,20 @@
       return;
     }
 
+    // Confirm / Finalize with Enter key (Floating Stitches or Active Text Layer)
+    if (e.key === 'Enter') {
+      if ($floatingSelection) {
+        e.preventDefault();
+        commitFloatingSelection();
+        return;
+      }
+      if ($activeLayer && $activeLayer.type === 'text' && !$activeLayer.locked) {
+        e.preventDefault();
+        quickDigitizeTextLayer($activeLayer.id);
+        return;
+      }
+    }
+
     // Delete Selected Stitches: Del or Backspace when selection exists
     if ((e.key === 'Delete' || e.key === 'Backspace') && $selection) {
       e.preventDefault();
@@ -251,11 +272,13 @@
           activeTool.set('picker');
           e.preventDefault();
           break;
-        case 'h': // Hand / Pan tool OR Flip Floating Selection / Active Stamp Horizontally
+        case 'h': // Hand / Pan tool OR Flip Floating Selection / Active Stamp / Text Layer Horizontally
           if ($floatingSelection) {
             flipHorizontal();
           } else if ($activeTool === 'stamp' && $activeStamp) {
             flipActiveStampHorizontal();
+          } else if ($activeLayer && $activeLayer.type === 'text' && !$activeLayer.locked) {
+            flipTextLayerHorizontal($activeLayer.id);
           } else {
             activeTool.set('pan');
           }
@@ -265,12 +288,15 @@
           activeTool.set('move');
           e.preventDefault();
           break;
-        case 'v': // Flip Floating Selection or Stamp Vertically
+        case 'v': // Flip Floating Selection, Stamp, or Active Text Layer Vertically
           if ($floatingSelection) {
             flipVertical();
             e.preventDefault();
           } else if ($activeTool === 'stamp' && $activeStamp) {
             flipActiveStampVertical();
+            e.preventDefault();
+          } else if ($activeLayer && $activeLayer.type === 'text' && !$activeLayer.locked) {
+            flipTextLayerVertical($activeLayer.id);
             e.preventDefault();
           }
           break;
@@ -278,11 +304,13 @@
           activeTool.set('line');
           e.preventDefault();
           break;
-        case 'r': // Rectangle tool OR Rotate Floating Selection / Stamp (90 degrees CW)
+        case 'r': // Rectangle tool OR Rotate Floating Selection / Stamp / Active Text Layer (90 deg)
           if ($floatingSelection) {
             rotate90(!e.shiftKey);
           } else if ($activeTool === 'stamp' && $activeStamp) {
             rotateActiveStamp(!e.shiftKey);
+          } else if ($activeLayer && $activeLayer.type === 'text' && !$activeLayer.locked) {
+            rotateTextLayer90($activeLayer.id, !e.shiftKey);
           } else {
             activeTool.set('rectangle');
           }
@@ -304,6 +332,39 @@
         case 'escape':
           activeTool.set('pencil');
           break;
+      }
+    }
+  }
+
+  function handleWindowPaste(e: ClipboardEvent) {
+    if (isInputFocused()) return;
+
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault();
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const src = event.target?.result as string;
+            const img = new Image();
+            img.onload = () => {
+              addReferenceImageLayer(
+                src,
+                `Pasted Image ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+                img.naturalWidth,
+                img.naturalHeight
+              );
+            };
+            img.src = src;
+          };
+          reader.readAsDataURL(file);
+          return;
+        }
       }
     }
   }
@@ -335,12 +396,14 @@
 
   onMount(() => {
     window.addEventListener('keydown', handleGlobalKeyDown);
+    window.addEventListener('paste', handleWindowPaste);
     window.addEventListener('dragover', handleWindowDragOver);
     window.addEventListener('drop', handleWindowDrop);
   });
 
   onDestroy(() => {
     window.removeEventListener('keydown', handleGlobalKeyDown);
+    window.removeEventListener('paste', handleWindowPaste);
     window.removeEventListener('dragover', handleWindowDragOver);
     window.removeEventListener('drop', handleWindowDrop);
   });
@@ -473,6 +536,7 @@
   <SaveProjectModal />
   <DigitizerModal />
   <TextModal />
+  <ImageUrlModal />
 </div>
 
 

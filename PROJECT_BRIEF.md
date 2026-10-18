@@ -258,6 +258,34 @@ To ensure instant $O(1)$ lookups, low memory usage, and zero GC stutter during c
     * **Fitted 100% Zoom Preview**: The entire text is always fully framed within the preview window at 100% zoom; increasing font size keeps the text framed while making the stitch dots finer and more detailed.
     * **Multi-Line Alignment Helper**: Clarified line alignment controls with tooltips and contextual status indicators.
 
+* **Milestone 6: Authentic Stitch Alphabets, Publishing & Workflow Polish** `[COMPLETED]`
+  * **Bidirectional Units in Canvas Resize & New Project**:
+    * Live synchronized inputs linking stitch counts with physical dimensions (Inches and Centimeters) based on the active or selected fabric count (e.g. 14ct, 16ct, 18ct, etc.).
+    * Modifying physical inches or cm immediately updates stitch counts with proper rounding, and vice versa.
+  * **Clipboard Image Paste & Web URL Importer**:
+    * Direct clipboard image paste (`Cmd+V` / `Ctrl+V`): copying any screenshot or picture to the clipboard and pasting automatically creates a reference image layer.
+    * Dedicated **From Image URL...** modal ([ImageUrlModal.svelte](file:///Users/mhibbs/Dropbox/Projects/XStitcher/src/lib/components/ImageUrlModal.svelte)) with URL connectivity testing, dimensions badge, live preview, and quick test samples.
+  * **Authentic Hand-Charted Stitch Alphabets (Bitmap Fonts)**:
+    * Created dedicated stitch typography engine ([stitchAlphabets.ts](file:///Users/mhibbs/Dropbox/Projects/XStitcher/src/lib/data/stitchAlphabets.ts)) defining discrete hand-charted cross-stitch alphabets that bypass vector rasterization entirely.
+    * 4 complete built-in classic fonts: *Mini Sampler 5pt*, *Classic Sampler 7pt*, *Roman Serif 9pt*, and *Victorian Monogram 13pt*.
+    * Dual typography mode in [TextModal.svelte](file:///Users/mhibbs/Dropbox/Projects/XStitcher/src/lib/components/TextModal.svelte) allowing instant switching between 1:1 Stitch Alphabets and Google Vector Fonts.
+    * Real-letter default font set to *Pixelify Sans* (#1) and *Silkscreen* (#2).
+  * **Precision Typography Alignment & Center-Pivot Rotation**:
+    * Vector typography overlay shadow alignment in [renderer.ts](file:///Users/mhibbs/Dropbox/Projects/XStitcher/src/lib/engine/renderer.ts) properly incorporates internal padding, locking vector text directly over the stitches on the z-axis with zero X/Y drift.
+    * Dynamic trigonometric rotation math around true layer center `(centerX, centerY)`, preventing text stitches from clipping or rotating outside bounding boxes.
+    * Discrete kerning (letter spacing) and line spacing controls in typography dialog.
+  * **Text Layer Workflow Hotkeys**:
+    * Press `Enter` on canvas to immediately digitize and finalize an active text layer into regular stitches.
+    * Press `R` to rotate active text layer 90° CW/CCW.
+    * Press `H` to flip active text layer horizontally, `V` to flip vertically.
+    * Contextual bottom status bar guidance pill with quick click-to-finalize button.
+  * **High-Definition PDF Chart Publishing & Direct Printing**:
+    * **Unicode Symbol Rendering**: Legend symbols rendered via high-resolution HTML5 canvas images into PDF, completely eliminating `%XX` character encoding artifacts.
+    * **Clean Specifications Card**: Split design size across two lines (`W″ × H″` and `(W × H cm)`) to fit specification boxes cleanly without overflow.
+    * **Uniform Remnant Page Scaling**: All chart pages maintain identical physical millimeter cell sizes (`cellMm`), ensuring remnant border pages align 1-to-1 seamlessly when cut out and taped together.
+    * **User-Configurable PDF Options**: Selectable page margins (*Minimal 6mm*, *Narrow 10mm*, *Standard 14mm*), chart grid density (*Compact 2.8mm*, *Standard 3.4mm*, *Large Print 4.5mm*), header/footer & overview map toggle, and customizable skein yield (default 2,000 stitches).
+    * **Direct Printing**: Added "Print Directly" button triggering native browser print dialog via an automated invisible PDF iframe.
+
 ---
 
 ## 6. Codebase Architecture & File Structure
