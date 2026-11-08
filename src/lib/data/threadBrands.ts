@@ -485,7 +485,7 @@ export const THREAD_BRANDS: Record<string, ThreadBrand> = {
     id: 'rainbow',
     name: 'Digital Rainbow Gamut',
     shortName: 'Rainbow',
-    manufacturer: 'XStitcher Digital Engine',
+    manufacturer: 'runStitch Digital Engine',
     description: '241-color uniform perceptual RGB gamut optimized for digital art, monitor displays, and pixel graphics.',
     threadCount: rainbowThreads.length,
     threads: rainbowThreads

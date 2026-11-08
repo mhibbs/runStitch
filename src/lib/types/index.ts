@@ -180,4 +180,5 @@ export interface HistoryDelta {
   before: Record<string, Stitch | null>; // null indicates stitch did not exist
   after: Record<string, Stitch | null>;
   layersSnapshot?: Layer[]; // For multi-layer structural actions like flatten
+  gridSnapshot?: GridDimensions;
 }

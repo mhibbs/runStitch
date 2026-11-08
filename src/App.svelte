@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import Header from './lib/components/Header.svelte';
+  import ToolOptionsBar from './lib/components/ToolOptionsBar.svelte';
   import Toolbar from './lib/components/Toolbar.svelte';
   import CanvasViewport from './lib/components/CanvasViewport.svelte';
   import PaletteDock from './lib/components/PaletteDock.svelte';
@@ -47,6 +48,8 @@
     flipHorizontal,
     flipVertical,
     addReferenceImageLayer,
+    executeUniversalPaste,
+    clipboard,
     openTextModal,
     quickDigitizeTextLayer,
     rotateTextLayer90,
@@ -125,7 +128,13 @@
     const active = document.activeElement;
     if (!active || !(active instanceof HTMLElement)) return false;
     const tag = active.tagName.toLowerCase();
-    return tag === 'input' || tag === 'textarea' || tag === 'select' || active.isContentEditable;
+    if (tag === 'textarea' || active.isContentEditable) return true;
+    if (tag === 'input') {
+      const type = (active as HTMLInputElement).type?.toLowerCase();
+      // Only text-entry inputs should trap keyboard shortcuts for text editing
+      return ['text', 'search', 'url', 'email', 'password', 'number', 'tel'].includes(type) || !type;
+    }
+    return false;
   }
 
   function handleGlobalKeyDown(e: KeyboardEvent) {
@@ -160,19 +169,18 @@
       return;
     }
 
+    const isZKey = e.key.toLowerCase() === 'z' || e.code === 'KeyZ';
+    const isYKey = e.key.toLowerCase() === 'y' || e.code === 'KeyY';
+
     // Undo: Cmd+Z (Mac) or Ctrl+Z (Windows)
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+    if ((e.metaKey || e.ctrlKey) && isZKey && !e.shiftKey) {
       e.preventDefault();
-      if (e.shiftKey) {
-        redo();
-      } else {
-        undo();
-      }
+      undo();
       return;
     }
 
-    // Redo: Cmd+Shift+Z or Ctrl+Y
-    if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) {
+    // Redo: Cmd+Shift+Z or Ctrl+Shift+Z or Cmd+Y or Ctrl+Y
+    if ((e.metaKey || e.ctrlKey) && ((isZKey && e.shiftKey) || isYKey)) {
       e.preventDefault();
       redo();
       return;
@@ -194,8 +202,17 @@
 
     // Paste: Cmd+V or Ctrl+V
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v') {
-      e.preventDefault();
-      pasteClipboard();
+      // Allow browser native 'paste' event to fire so handleWindowPaste can read clipboardData (images, files, text).
+      // Fall back to executeUniversalPaste if the browser does not fire 'paste' on non-editable elements.
+      let pasteFired = false;
+      const onPasteCheck = () => { pasteFired = true; };
+      window.addEventListener('paste', onPasteCheck, { once: true, capture: true });
+      setTimeout(() => {
+        window.removeEventListener('paste', onPasteCheck, { capture: true });
+        if (!pasteFired) {
+          executeUniversalPaste();
+        }
+      }, 75);
       return;
     }
 
@@ -339,33 +356,86 @@
   function handleWindowPaste(e: ClipboardEvent) {
     if (isInputFocused()) return;
 
+    // 1. Check clipboard items for image data
     const items = e.clipboardData?.items;
-    if (!items) return;
+    if (items) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              const src = event.target?.result as string;
+              if (src) {
+                addReferenceImageLayer(
+                  src,
+                  `Pasted Image ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                );
+              }
+            };
+            reader.readAsDataURL(file);
+            return;
+          }
+        }
+      }
+    }
 
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (item.type.startsWith('image/')) {
-        const file = item.getAsFile();
-        if (file) {
+    // 2. Check clipboard files (e.g. copied from file explorer or Finder)
+    const files = e.clipboardData?.files;
+    if (files && files.length > 0) {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.type.startsWith('image/')) {
           e.preventDefault();
           const reader = new FileReader();
           reader.onload = (event) => {
             const src = event.target?.result as string;
-            const img = new Image();
-            img.onload = () => {
+            if (src) {
               addReferenceImageLayer(
                 src,
-                `Pasted Image ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-                img.naturalWidth,
-                img.naturalHeight
+                `Pasted Image ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
               );
-            };
-            img.src = src;
+            }
           };
           reader.readAsDataURL(file);
           return;
         }
       }
+    }
+
+    // 3. Check plain text for image URL, data URI, or serialized stitches
+    const text = e.clipboardData?.getData('text')?.trim();
+    if (text) {
+      if (text.startsWith('data:image/') || /^https?:\/\/.*\.(png|jpe?g|webp|gif|svg|bmp)(\?.*)?$/i.test(text)) {
+        e.preventDefault();
+        addReferenceImageLayer(
+          text,
+          `Pasted Image ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+        );
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed?.type === 'xstitcher-stitches' && parsed.stitches) {
+          e.preventDefault();
+          clipboard.set({
+            width: parsed.width,
+            height: parsed.height,
+            stitches: parsed.stitches
+          });
+          pasteClipboard();
+          return;
+        }
+      } catch (_) {}
+    }
+
+    // 4. Fallback: If internal stitches exist in memory, paste them
+    if ($clipboard && Object.keys($clipboard.stitches).length > 0) {
+      e.preventDefault();
+      pasteClipboard();
     }
   }
 
@@ -412,6 +482,9 @@
 <div class="flex flex-col w-screen h-screen overflow-hidden bg-[#141419] font-sans antialiased">
   <!-- Top Navigation Bar -->
   <Header />
+
+  <!-- Contextual Tool Options Bar -->
+  <ToolOptionsBar />
 
   <!-- Main Creative Studio Workspace -->
   <div class="flex flex-1 overflow-hidden relative">

@@ -1,4 +1,4 @@
-import type { Layer, PaletteColor, ViewMode, Viewport, GridDimensions, SelectionBox, FloatingSelection, ActiveTool, MotifStamp } from '../types';
+import type { Layer, PaletteColor, ViewMode, Viewport, GridDimensions, SelectionBox, FloatingSelection, ActiveTool, MotifStamp, StitchType } from '../types';
 import { getColorLuminance, DMC_CATALOG } from '../data/dmcPalette';
 
 const GLOBAL_DMC_MAP = new Map(DMC_CATALOG.map(d => [d.code, d.hex]));
@@ -22,8 +22,8 @@ export function getCachedImageElement(src: string, onLoaded?: () => void): HTMLI
 // Hardware-accelerated stitch sprite cache for 60 FPS Mockup rendering
 const stitchSpriteCache = new Map<string, HTMLCanvasElement>();
 
-function getRealisticStitchSprite(hex: string, size: number): HTMLCanvasElement {
-  const key = `${hex}_${size}`;
+function getRealisticStitchSprite(hex: string, size: number, type: StitchType = 'full'): HTMLCanvasElement {
+  const key = `${hex}_${size}_${type}`;
   const existing = stitchSpriteCache.get(key);
   if (existing) return existing;
 
@@ -39,47 +39,69 @@ function getRealisticStitchSprite(hex: string, size: number): HTMLCanvasElement 
   sCtx.lineCap = 'round';
   sCtx.lineJoin = 'round';
 
-  // Bottom diagonal subtle shadow underneath (fabric contact shadow)
-  sCtx.strokeStyle = 'rgba(0, 0, 0, 0.22)';
-  sCtx.lineWidth = threadWidth;
-  sCtx.beginPath();
-  sCtx.moveTo(pad, size - pad + 1);
-  sCtx.lineTo(size - pad, pad + 1);
-  sCtx.stroke();
+  const drawHalfForward = () => {
+    // Bottom diagonal subtle shadow underneath (fabric contact shadow)
+    sCtx.strokeStyle = 'rgba(0, 0, 0, 0.22)';
+    sCtx.lineWidth = threadWidth;
+    sCtx.beginPath();
+    sCtx.moveTo(pad, size - pad + 1);
+    sCtx.lineTo(size - pad, pad + 1);
+    sCtx.stroke();
 
-  // Bottom diagonal (/)
-  sCtx.strokeStyle = hex;
-  sCtx.lineWidth = threadWidth;
-  sCtx.beginPath();
-  sCtx.moveTo(pad, size - pad);
-  sCtx.lineTo(size - pad, pad);
-  sCtx.stroke();
+    // Bottom diagonal (/)
+    sCtx.strokeStyle = hex;
+    sCtx.lineWidth = threadWidth;
+    sCtx.beginPath();
+    sCtx.moveTo(pad, size - pad);
+    sCtx.lineTo(size - pad, pad);
+    sCtx.stroke();
 
-  // Top diagonal subtle shadow
-  sCtx.strokeStyle = 'rgba(0, 0, 0, 0.25)';
-  sCtx.lineWidth = threadWidth;
-  sCtx.beginPath();
-  sCtx.moveTo(pad, pad + 1);
-  sCtx.lineTo(size - pad, size - pad + 1);
-  sCtx.stroke();
+    // Highlight sheen
+    sCtx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
+    sCtx.lineWidth = Math.max(1, threadWidth * 0.3);
+    sCtx.beginPath();
+    sCtx.moveTo(pad + 1, size - pad - 1);
+    sCtx.lineTo(size - pad - 1, pad + 1);
+    sCtx.stroke();
+  };
 
-  // Top diagonal (\)
-  sCtx.strokeStyle = hex;
-  sCtx.lineWidth = threadWidth;
-  sCtx.beginPath();
-  sCtx.moveTo(pad, pad);
-  sCtx.lineTo(size - pad, size - pad);
-  sCtx.stroke();
+  const drawHalfBack = () => {
+    // Top diagonal subtle shadow
+    sCtx.strokeStyle = 'rgba(0, 0, 0, 0.25)';
+    sCtx.lineWidth = threadWidth;
+    sCtx.beginPath();
+    sCtx.moveTo(pad, pad + 1);
+    sCtx.lineTo(size - pad, size - pad + 1);
+    sCtx.stroke();
 
-  // Highlight sheen on top thread
-  sCtx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
-  sCtx.lineWidth = Math.max(1, threadWidth * 0.3);
-  sCtx.beginPath();
-  sCtx.moveTo(pad + 1, pad + 1);
-  sCtx.lineTo(size - pad - 1, size - pad - 1);
-  sCtx.stroke();
+    // Top diagonal (\)
+    sCtx.strokeStyle = hex;
+    sCtx.lineWidth = threadWidth;
+    sCtx.beginPath();
+    sCtx.moveTo(pad, pad);
+    sCtx.lineTo(size - pad, size - pad);
+    sCtx.stroke();
 
-  if (stitchSpriteCache.size > 500) {
+    // Highlight sheen on top thread
+    sCtx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
+    sCtx.lineWidth = Math.max(1, threadWidth * 0.3);
+    sCtx.beginPath();
+    sCtx.moveTo(pad + 1, pad + 1);
+    sCtx.lineTo(size - pad - 1, size - pad - 1);
+    sCtx.stroke();
+  };
+
+  if (type === 'half_forward') {
+    drawHalfForward();
+  } else if (type === 'half_back') {
+    drawHalfBack();
+  } else {
+    // 'full' (or other variations): both diagonal arms
+    drawHalfForward();
+    drawHalfBack();
+  }
+
+  if (stitchSpriteCache.size > 800) {
     stitchSpriteCache.clear();
   }
   stitchSpriteCache.set(key, sprite);
@@ -273,21 +295,73 @@ export function renderStitches(
         const px = panX + x * zoom;
         const py = panY + y * zoom;
 
+        const stitchType = stitch.type || 'full';
+
         if (viewMode === 'mockup') {
-          const sprite = getRealisticStitchSprite(color.hex, zoom);
+          const sprite = getRealisticStitchSprite(color.hex, zoom, stitchType);
           ctx.drawImage(sprite, px, py);
         } else if (viewMode === 'chart') {
-          // Color block with symbol
-          ctx.fillStyle = color.hex;
-          ctx.fillRect(px, py, zoom, zoom);
+          if (stitchType === 'half_forward') {
+            // Half stitch forward (/): diagonal slash bottom-left to top-right
+            ctx.fillStyle = color.hex;
+            ctx.beginPath();
+            ctx.moveTo(px, py + zoom);
+            ctx.lineTo(px + zoom, py);
+            ctx.lineTo(px + zoom, py + zoom);
+            ctx.closePath();
+            ctx.fill();
 
-          // Draw symbol if zoom is large enough to be legible
-          if (zoom >= 14) {
-            ctx.fillStyle = color.symbolColor || '#FFFFFF';
-            ctx.font = `bold ${Math.floor(zoom * 0.6)}px sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(color.symbol, px + zoom / 2, py + zoom / 2 + 1);
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.moveTo(px, py + zoom);
+            ctx.lineTo(px + zoom, py);
+            ctx.stroke();
+
+            if (zoom >= 14) {
+              ctx.fillStyle = color.symbolColor || '#FFFFFF';
+              ctx.font = `bold ${Math.floor(zoom * 0.45)}px sans-serif`;
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(color.symbol, px + zoom * 0.65, py + zoom * 0.65);
+            }
+          } else if (stitchType === 'half_back') {
+            // Half stitch back (\): diagonal slash top-left to bottom-right
+            ctx.fillStyle = color.hex;
+            ctx.beginPath();
+            ctx.moveTo(px, py);
+            ctx.lineTo(px + zoom, py + zoom);
+            ctx.lineTo(px, py + zoom);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.moveTo(px, py);
+            ctx.lineTo(px + zoom, py + zoom);
+            ctx.stroke();
+
+            if (zoom >= 14) {
+              ctx.fillStyle = color.symbolColor || '#FFFFFF';
+              ctx.font = `bold ${Math.floor(zoom * 0.45)}px sans-serif`;
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(color.symbol, px + zoom * 0.35, py + zoom * 0.65);
+            }
+          } else {
+            // Full Cross: Color block with symbol
+            ctx.fillStyle = color.hex;
+            ctx.fillRect(px, py, zoom, zoom);
+
+            // Draw symbol if zoom is large enough to be legible
+            if (zoom >= 14) {
+              ctx.fillStyle = color.symbolColor || '#FFFFFF';
+              ctx.font = `bold ${Math.floor(zoom * 0.6)}px sans-serif`;
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(color.symbol, px + zoom / 2, py + zoom / 2 + 1);
+            }
           }
         } else if (viewMode === 'symbols_only') {
           // Enhanced Grayscale / Symbol View
@@ -305,19 +379,67 @@ export function renderStitches(
             textColor = '#111827';
           }
 
-          ctx.fillStyle = bgTone;
-          ctx.fillRect(px, py, zoom, zoom);
+          if (stitchType === 'half_forward') {
+            ctx.fillStyle = bgTone;
+            ctx.beginPath();
+            ctx.moveTo(px, py + zoom);
+            ctx.lineTo(px + zoom, py);
+            ctx.lineTo(px + zoom, py + zoom);
+            ctx.closePath();
+            ctx.fill();
 
-          ctx.strokeStyle = '#94A3B8';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(px + 0.5, py + 0.5, zoom - 1, zoom - 1);
+            ctx.strokeStyle = '#64748B';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(px, py + zoom);
+            ctx.lineTo(px + zoom, py);
+            ctx.stroke();
 
-          if (zoom >= 12) {
-            ctx.fillStyle = textColor;
-            ctx.font = `bold ${Math.floor(zoom * 0.65)}px sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(color.symbol, px + zoom / 2, py + zoom / 2 + 1);
+            if (zoom >= 12) {
+              ctx.fillStyle = textColor;
+              ctx.font = `bold ${Math.floor(zoom * 0.50)}px sans-serif`;
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(color.symbol, px + zoom * 0.65, py + zoom * 0.65);
+            }
+          } else if (stitchType === 'half_back') {
+            ctx.fillStyle = bgTone;
+            ctx.beginPath();
+            ctx.moveTo(px, py);
+            ctx.lineTo(px + zoom, py + zoom);
+            ctx.lineTo(px, py + zoom);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.strokeStyle = '#64748B';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(px, py);
+            ctx.lineTo(px + zoom, py + zoom);
+            ctx.stroke();
+
+            if (zoom >= 12) {
+              ctx.fillStyle = textColor;
+              ctx.font = `bold ${Math.floor(zoom * 0.50)}px sans-serif`;
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(color.symbol, px + zoom * 0.35, py + zoom * 0.65);
+            }
+          } else {
+            ctx.fillStyle = bgTone;
+            ctx.fillRect(px, py, zoom, zoom);
+
+            ctx.strokeStyle = '#94A3B8';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(px + 0.5, py + 0.5, zoom - 1, zoom - 1);
+
+            if (zoom >= 12) {
+              ctx.fillStyle = textColor;
+              ctx.font = `bold ${Math.floor(zoom * 0.65)}px sans-serif`;
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(color.symbol, px + zoom / 2, py + zoom / 2 + 1);
+            }
           }
         }
       }
@@ -624,13 +746,13 @@ export function renderOverlay(
     ctx.lineDashOffset = -dashOffset;
     ctx.strokeStyle = '#38BDF8';
     ctx.beginPath();
-    const firstX = Math.floor(panX + (lassoPoints[0].x + 0.5) * zoom);
-    const firstY = Math.floor(panY + (lassoPoints[0].y + 0.5) * zoom);
+    const firstX = Math.floor(panX + lassoPoints[0].x * zoom);
+    const firstY = Math.floor(panY + lassoPoints[0].y * zoom);
     ctx.moveTo(firstX, firstY);
 
     for (let i = 1; i < lassoPoints.length; i++) {
-      const px = Math.floor(panX + (lassoPoints[i].x + 0.5) * zoom);
-      const py = Math.floor(panY + (lassoPoints[i].y + 0.5) * zoom);
+      const px = Math.floor(panX + lassoPoints[i].x * zoom);
+      const py = Math.floor(panY + lassoPoints[i].y * zoom);
       ctx.lineTo(px, py);
     }
     ctx.stroke();

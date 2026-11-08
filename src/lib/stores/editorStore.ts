@@ -162,38 +162,50 @@ export function commitStroke(desc = 'Draw Stitches') {
   currentStrokeDelta = null;
 }
 
-export function setStitchAt(x: number, y: number, colorId: number) {
+export function setStitchAt(x: number, y: number, colorId: number, stitchType?: StitchType) {
   const currentLayers = get(layers);
   const activeId = get(activeLayerId);
   const targetLayer = currentLayers.find(l => l.id === activeId);
   if (!targetLayer || targetLayer.locked || !targetLayer.visible) return;
 
-  const key = `${x},${y}`;
-  const existingStitch = targetLayer.stitches[key];
+  const currentType = stitchType || get(activeStitchType) || 'full';
+  const size = get(brushSize) || 1;
 
-  // If already matches, skip
-  if (existingStitch && existingStitch.colorId === colorId && existingStitch.type === 'full') {
-    return;
-  }
-
-  // Record in delta
-  if (currentStrokeDelta) {
-    if (!(key in currentStrokeDelta.before)) {
-      currentStrokeDelta.before[key] = existingStitch ? { ...existingStitch } : null;
+  const points: { x: number; y: number }[] = [];
+  if (size === 1) {
+    points.push({ x, y });
+  } else {
+    const half = Math.floor(size / 2);
+    for (let dy = -half; dy < size - half; dy++) {
+      for (let dx = -half; dx < size - half; dx++) {
+        points.push({ x: x + dx, y: y + dy });
+      }
     }
-    currentStrokeDelta.after[key] = { colorId, type: 'full' };
   }
 
   // Update layer
   layers.update(ls => ls.map(l => {
     if (l.id === activeId) {
-      return {
-        ...l,
-        stitches: {
-          ...l.stitches,
-          [key]: { colorId, type: 'full' }
+      const updated = { ...l.stitches };
+      for (const pt of points) {
+        const key = `${pt.x},${pt.y}`;
+        const existingStitch = targetLayer.stitches[key];
+
+        if (existingStitch && existingStitch.colorId === colorId && existingStitch.type === currentType) {
+          continue;
         }
-      };
+
+        // Record in delta
+        if (currentStrokeDelta) {
+          if (!(key in currentStrokeDelta.before)) {
+            currentStrokeDelta.before[key] = existingStitch ? { ...existingStitch } : null;
+          }
+          currentStrokeDelta.after[key] = { colorId, type: currentType };
+        }
+
+        updated[key] = { colorId, type: currentType };
+      }
+      return { ...l, stitches: updated };
     }
     return l;
   }));
@@ -205,29 +217,44 @@ export function eraseStitchAt(x: number, y: number) {
   const targetLayer = currentLayers.find(l => l.id === activeId);
   if (!targetLayer || targetLayer.locked || !targetLayer.visible) return;
 
-  const key = `${x},${y}`;
-  const existingStitch = targetLayer.stitches[key];
-  if (!existingStitch) return;
-
-  // Record in delta
-  if (currentStrokeDelta) {
-    if (!(key in currentStrokeDelta.before)) {
-      currentStrokeDelta.before[key] = { ...existingStitch };
+  const size = get(eraserSize) || 1;
+  const points: { x: number; y: number }[] = [];
+  if (size === 1) {
+    points.push({ x, y });
+  } else {
+    const half = Math.floor(size / 2);
+    for (let dy = -half; dy < size - half; dy++) {
+      for (let dx = -half; dx < size - half; dx++) {
+        points.push({ x: x + dx, y: y + dy });
+      }
     }
-    currentStrokeDelta.after[key] = null;
   }
 
   layers.update(ls => ls.map(l => {
     if (l.id === activeId) {
       const updated = { ...l.stitches };
-      delete updated[key];
-      return { ...l, stitches: updated };
+      let anyChanged = false;
+      for (const pt of points) {
+        const key = `${pt.x},${pt.y}`;
+        const existingStitch = targetLayer.stitches[key];
+        if (existingStitch) {
+          anyChanged = true;
+          if (currentStrokeDelta) {
+            if (!(key in currentStrokeDelta.before)) {
+              currentStrokeDelta.before[key] = { ...existingStitch };
+            }
+            currentStrokeDelta.after[key] = null;
+          }
+          delete updated[key];
+        }
+      }
+      return anyChanged ? { ...l, stitches: updated } : l;
     }
     return l;
   }));
 }
 
-export function floodFill(startX: number, startY: number, newColorId: number) {
+export function floodFill(startX: number, startY: number, newColorId: number, stitchType?: StitchType) {
   const currentGrid = get(grid);
   if (startX < 0 || startX >= currentGrid.width || startY < 0 || startY >= currentGrid.height) return;
 
@@ -236,11 +263,12 @@ export function floodFill(startX: number, startY: number, newColorId: number) {
   const targetLayer = currentLayers.find(l => l.id === activeId);
   if (!targetLayer || targetLayer.locked || !targetLayer.visible) return;
 
+  const fillType = stitchType || get(activeStitchType) || 'full';
   const startKey = `${startX},${startY}`;
   const targetStitch = targetLayer.stitches[startKey];
   const targetColorId = targetStitch ? targetStitch.colorId : null;
 
-  if (targetColorId === newColorId) return;
+  if (targetColorId === newColorId && targetStitch?.type === fillType) return;
 
   beginStroke('Flood Fill');
 
@@ -259,7 +287,7 @@ export function floodFill(startX: number, startY: number, newColorId: number) {
     const currentColor = currentStitch ? currentStitch.colorId : null;
 
     if (currentColor === targetColorId) {
-      setStitchAt(x, y, newColorId);
+      setStitchAt(x, y, newColorId, fillType);
       // 4-way neighbors
       queue.push([x + 1, y]);
       queue.push([x - 1, y]);
@@ -287,6 +315,32 @@ export function pickColorAt(x: number, y: number): boolean {
   return false;
 }
 
+export function cloneLayers(layersList: Layer[]): Layer[] {
+  return layersList.map(l => ({
+    ...l,
+    image: l.image ? { ...l.image } : undefined,
+    textData: l.textData ? { ...l.textData } : undefined,
+    stitches: { ...l.stitches }
+  }));
+}
+
+export function pushLayersUndo(description: string, targetLayerId?: string, gridSnapshot?: GridDimensions) {
+  const currentLayers = cloneLayers(get(layers));
+  const activeId = targetLayerId || get(activeLayerId);
+  undoStack.update(u => [
+    ...u.slice(-50),
+    {
+      description,
+      layerId: activeId,
+      before: {},
+      after: {},
+      layersSnapshot: currentLayers,
+      gridSnapshot: gridSnapshot ? { ...gridSnapshot } : undefined
+    }
+  ]);
+  redoStack.set([]);
+}
+
 export function undo() {
   const stack = get(undoStack);
   if (stack.length === 0) return;
@@ -295,11 +349,30 @@ export function undo() {
   undoStack.set(stack.slice(0, -1));
 
   if (action.layersSnapshot) {
-    const current = get(layers);
-    redoStack.update(r => [...r, { ...action, layersSnapshot: current }]);
-    layers.set(action.layersSnapshot);
-    if (action.layersSnapshot.length > 0) {
-      activeLayerId.set(action.layersSnapshot[0].id);
+    const currentLayers = cloneLayers(get(layers));
+    const currentGrid = get(grid);
+    redoStack.update(r => [
+      ...r,
+      {
+        ...action,
+        layersSnapshot: currentLayers,
+        gridSnapshot: action.gridSnapshot ? { ...currentGrid } : undefined
+      }
+    ]);
+
+    if (action.gridSnapshot) {
+      grid.set({ ...action.gridSnapshot });
+    }
+
+    layers.set(cloneLayers(action.layersSnapshot));
+
+    // Preserve active layer or focus on target layer
+    const nextLayers = action.layersSnapshot;
+    const currentActive = get(activeLayerId);
+    if (nextLayers.some(l => l.id === action.layerId)) {
+      activeLayerId.set(action.layerId);
+    } else if (!nextLayers.some(l => l.id === currentActive) && nextLayers.length > 0) {
+      activeLayerId.set(nextLayers[nextLayers.length - 1].id);
     }
     return;
   }
@@ -332,11 +405,29 @@ export function redo() {
   redoStack.set(rStack.slice(0, -1));
 
   if (action.layersSnapshot) {
-    const current = get(layers);
-    undoStack.update(u => [...u, { ...action, layersSnapshot: current }]);
-    layers.set(action.layersSnapshot);
-    if (action.layersSnapshot.length > 0) {
-      activeLayerId.set(action.layersSnapshot[0].id);
+    const currentLayers = cloneLayers(get(layers));
+    const currentGrid = get(grid);
+    undoStack.update(u => [
+      ...u,
+      {
+        ...action,
+        layersSnapshot: currentLayers,
+        gridSnapshot: action.gridSnapshot ? { ...currentGrid } : undefined
+      }
+    ]);
+
+    if (action.gridSnapshot) {
+      grid.set({ ...action.gridSnapshot });
+    }
+
+    layers.set(cloneLayers(action.layersSnapshot));
+
+    const nextLayers = action.layersSnapshot;
+    const currentActive = get(activeLayerId);
+    if (nextLayers.some(l => l.id === action.layerId)) {
+      activeLayerId.set(action.layerId);
+    } else if (!nextLayers.some(l => l.id === currentActive) && nextLayers.length > 0) {
+      activeLayerId.set(nextLayers[nextLayers.length - 1].id);
     }
     return;
   }
@@ -462,6 +553,8 @@ export function resizeGrid(newWidth: number, newHeight: number, anchor: 'center'
   const oldHeight = currentGrid.height;
   if (newWidth === oldWidth && newHeight === oldHeight) return;
 
+  pushLayersUndo('Resize Canvas', get(activeLayerId), currentGrid);
+
   const dx = anchor === 'center' ? Math.floor((newWidth - oldWidth) / 2) : 0;
   const dy = anchor === 'center' ? Math.floor((newHeight - oldHeight) / 2) : 0;
 
@@ -521,7 +614,7 @@ export function saveProjectFile(customFileName?: string) {
 
   const data = {
     version: '1.0',
-    generator: 'XStitcher Studio',
+    generator: 'runStitch Studio',
     name: currentName,
     timestamp: new Date().toISOString(),
     grid: get(grid),
@@ -649,7 +742,17 @@ export function setFabricColor(hex: string) {
 
 // Milestone 4: Shape Tools & Motif Stamps
 export const shapeFillMode = writable<ShapeFillMode>('outline');
+export const activeShapeTool = writable<'line' | 'rectangle' | 'ellipse'>('rectangle');
 export const activeStamp = writable<MotifStamp | null>(null);
+
+// Tool Option Stores (Contextual Toolbar)
+export const activeStitchType = writable<StitchType>('full');
+export const brushSize = writable<number>(1);
+export const eraserSize = writable<number>(1);
+export const wandTolerance = writable<number>(24);
+export const wandContiguous = writable<boolean>(true);
+export const lassoFilterMode = writable<'all' | 'stitches_only' | 'active_color'>('all');
+export const selectionCombineMode = writable<'replace' | 'add' | 'subtract'>('replace');
 
 export function ensureDmcInPalette(dmcCode: string): number {
   const currentPal = get(palette);
@@ -725,6 +828,17 @@ export function copySelection(): boolean {
     height: sel.height,
     stitches: relStitches
   });
+
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    try {
+      navigator.clipboard.writeText(JSON.stringify({
+        type: 'xstitcher-stitches',
+        width: sel.width,
+        height: sel.height,
+        stitches: relStitches
+      })).catch(() => {});
+    } catch (_) {}
+  }
   return true;
 }
 
@@ -914,7 +1028,7 @@ export function commitLayerStitchesMove(
       before[k] = { ...sInit };
       after[k] = null;
       hasChange = true;
-    } else if (sInit && sFinal && (sInit.colorId !== sFinal.colorId || sInit.symbol !== sFinal.symbol)) {
+    } else if (sInit && sFinal && (sInit.colorId !== sFinal.colorId || sInit.type !== sFinal.type)) {
       before[k] = { ...sInit };
       after[k] = { ...sFinal };
       hasChange = true;
@@ -1341,6 +1455,43 @@ export function rotate90(clockwise: boolean = true) {
 // Layer Stack Operations (Milestone 3)
 // ==========================================
 
+export function createNewLayer(name?: string): string {
+  const currentLayers = get(layers);
+  const nextNum = currentLayers.length + 1;
+  const newId = `layer-${Date.now()}`;
+  const layerName = name || `Layer ${nextNum}`;
+  
+  pushLayersUndo(`New Layer "${layerName}"`, newId);
+  
+  const newLayer: Layer = {
+    id: newId,
+    name: layerName,
+    visible: true,
+    locked: false,
+    opacity: 1.0,
+    stitches: {}
+  };
+  layers.set([...currentLayers, newLayer]);
+  activeLayerId.set(newId);
+  return newId;
+}
+
+export function deleteLayer(id: string): boolean {
+  const currentLayers = get(layers);
+  if (currentLayers.length <= 1) return false;
+  const target = currentLayers.find(l => l.id === id);
+  if (!target) return false;
+
+  pushLayersUndo(`Delete Layer "${target.name}"`, id);
+
+  const nextLayers = currentLayers.filter(l => l.id !== id);
+  layers.set(nextLayers);
+  if (get(activeLayerId) === id) {
+    activeLayerId.set(nextLayers[nextLayers.length - 1].id);
+  }
+  return true;
+}
+
 export function duplicateLayer(id: string) {
   const currentLayers = get(layers);
   const index = currentLayers.findIndex(l => l.id === id);
@@ -1355,6 +1506,8 @@ export function duplicateLayer(id: string) {
     stitches: { ...src.stitches }
   };
 
+  pushLayersUndo(`Duplicate Layer "${src.name}"`, newId);
+
   const next = [...currentLayers];
   next.splice(index + 1, 0, duplicated);
   layers.set(next);
@@ -1368,6 +1521,8 @@ export function moveLayer(id: string, direction: 'up' | 'down') {
 
   const targetIndex = direction === 'up' ? index + 1 : index - 1;
   if (targetIndex < 0 || targetIndex >= currentLayers.length) return;
+
+  pushLayersUndo(`Move Layer "${currentLayers[index].name}"`, id);
 
   const next = [...currentLayers];
   const [removed] = next.splice(index, 1);
@@ -1388,6 +1543,8 @@ export function mergeLayerDown(id: string) {
     ...upper.stitches
   };
 
+  pushLayersUndo(`Merge Layer "${upper.name}" Down`, lower.id);
+
   const next = currentLayers.filter(l => l.id !== id).map(l => {
     if (l.id === lower.id) {
       return { ...l, stitches: mergedStitches };
@@ -1406,6 +1563,7 @@ export function renameLayer(id: string, newName: string) {
 }
 
 export function reorderLayers(newOrderedLayers: Layer[]) {
+  pushLayersUndo('Reorder Layers');
   layers.set(newOrderedLayers);
 }
 
@@ -1525,6 +1683,7 @@ export async function addReferenceImageLayer(
   const currentLayers = get(layers);
   layers.set([...currentLayers, newLayer]);
   activeLayerId.set(newId);
+  activeTool.set('move');
 
   undoStack.update(u => [
     ...u,
@@ -1539,6 +1698,82 @@ export async function addReferenceImageLayer(
   redoStack.set([]);
 
   return newId;
+}
+
+/**
+ * Universal Paste:
+ * Tries reading image or stitch data from modern Async Clipboard API (navigator.clipboard).
+ * Falls back to in-memory stitch clipboard ($clipboard).
+ */
+export async function executeUniversalPaste(): Promise<boolean> {
+  // 1. Try reading system clipboard via modern Async Clipboard API
+  if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.read === 'function') {
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const imageType = item.types.find(t => t.startsWith('image/'));
+        if (imageType) {
+          const blob = await item.getType(imageType);
+          const reader = new FileReader();
+          await new Promise<void>((resolve) => {
+            reader.onload = async (e) => {
+              const src = e.target?.result as string;
+              if (src) {
+                await addReferenceImageLayer(
+                  src,
+                  `Pasted Image ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                );
+              }
+              resolve();
+            };
+            reader.readAsDataURL(blob);
+          });
+          return true;
+        }
+      }
+    } catch (err) {
+      // Permission denied or reading images failed; continue to next fallbacks
+      console.debug('navigator.clipboard.read fallback:', err);
+    }
+  }
+
+  // 2. Try reading clipboard text for image URL or serialized stitches
+  if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
+    try {
+      const text = (await navigator.clipboard.readText()).trim();
+      if (text) {
+        if (text.startsWith('data:image/') || /^https?:\/\/.*\.(png|jpe?g|webp|gif|svg|bmp)(\?.*)?$/i.test(text)) {
+          await addReferenceImageLayer(
+            text,
+            `Pasted Image ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+          );
+          return true;
+        }
+
+        try {
+          const parsed = JSON.parse(text);
+          if (parsed?.type === 'xstitcher-stitches' && parsed.stitches) {
+            clipboard.set({
+              width: parsed.width,
+              height: parsed.height,
+              stitches: parsed.stitches
+            });
+            pasteClipboard();
+            return true;
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  // 3. Fallback to in-memory stitches clipboard
+  const clip = get(clipboard);
+  if (clip && Object.keys(clip.stitches).length > 0) {
+    pasteClipboard();
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -1565,7 +1800,21 @@ export function getOrAddPaletteColor(hex: string): number {
       if (diff === 0) break;
     }
   }
-  return addColorToPalette(bestDMC.code);
+  const existingDMC = currentPal.find(p => p.dmc === bestDMC.code);
+  if (existingDMC) return existingDMC.id;
+
+  const nextId = currentPal.length > 0 ? Math.max(...currentPal.map(p => p.id)) + 1 : 1;
+  const newColor: PaletteColor = {
+    id: nextId,
+    dmc: bestDMC.code,
+    name: bestDMC.name,
+    hex: bestDMC.hex,
+    brand: 'dmc',
+    symbol: CHART_SYMBOLS[(currentPal.length) % CHART_SYMBOLS.length],
+    symbolColor: getHighContrastTextColor(bestDMC.hex)
+  };
+  palette.update(pal => [...pal, newColor]);
+  return nextId;
 }
 
 /**
@@ -1935,6 +2184,9 @@ export function rotateTextLayer90(layerId: string, clockwise: boolean = true) {
   const currentLayers = get(layers);
   const target = currentLayers.find(l => l.id === layerId);
   if (!target || target.type !== 'text' || !target.image) return;
+
+  pushLayersUndo(`Rotate Text ${clockwise ? '90° CW' : '90° CCW'}`, layerId);
+
   const currentRot = target.image.rotation || 0;
   const nextRot = ((currentRot + (clockwise ? 90 : -90)) % 360 + 360) % 360;
   updateImageLayer(layerId, { rotation: nextRot });
@@ -1946,6 +2198,9 @@ export function flipTextLayerHorizontal(layerId: string) {
   if (!target || target.type !== 'text') return;
   const img = target.image;
   if (!img) return;
+
+  pushLayersUndo('Flip Text Horizontal', layerId);
+
   const centerX = img.x + img.width / 2;
   const flipped: Record<string, Stitch> = {};
   for (const [key, stitch] of Object.entries(target.stitches)) {
@@ -1962,6 +2217,9 @@ export function flipTextLayerVertical(layerId: string) {
   if (!target || target.type !== 'text') return;
   const img = target.image;
   if (!img) return;
+
+  pushLayersUndo('Flip Text Vertical', layerId);
+
   const centerY = img.y + img.height / 2;
   const flipped: Record<string, Stitch> = {};
   for (const [key, stitch] of Object.entries(target.stitches)) {
@@ -2100,6 +2358,12 @@ export function clearPasteboardStitches(layerId?: string) {
 }
 
 export function rotateImageLayer(layerId: string, clockwise = true) {
+  const currentLayers = get(layers);
+  const target = currentLayers.find(l => l.id === layerId);
+  if (!target || !target.image) return;
+
+  pushLayersUndo(`Rotate Image ${clockwise ? '90° CW' : '90° CCW'}`, layerId);
+
   layers.update(ls => ls.map(l => {
     if (l.id === layerId && l.image) {
       const currentRot = l.image.rotation || 0;
@@ -2117,6 +2381,12 @@ export function rotateImageLayer(layerId: string, clockwise = true) {
 }
 
 export function fitImageLayerToCanvas(layerId: string) {
+  const currentLayers = get(layers);
+  const target = currentLayers.find(l => l.id === layerId);
+  if (!target || !target.image) return;
+
+  pushLayersUndo('Fit Image to Canvas', layerId);
+
   const currentGrid = get(grid);
   layers.update(ls => ls.map(l => {
     if (l.id === layerId && l.image) {

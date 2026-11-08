@@ -65,10 +65,10 @@
   <div class="flex items-center space-x-3">
     <div class="flex items-center space-x-2">
       <div class="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-white shadow-md shadow-indigo-600/30 text-xs">
-        XS
+        RS
       </div>
       <div class="hidden md:flex items-baseline space-x-1.5">
-        <h1 class="text-sm font-bold text-white tracking-wide">XStitcher</h1>
+        <h1 class="text-sm font-bold text-white tracking-wide">runStitch</h1>
         <span class="text-[10px] text-indigo-400 font-mono bg-indigo-950/60 px-1 py-0.2 rounded border border-indigo-800/40">
           Studio
         </span>

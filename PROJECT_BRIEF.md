@@ -1,7 +1,7 @@
-# XStitcher: Project Specification & Architecture Blueprint
+# runStitch: Project Specification & Architecture Blueprint
 
 ## 1. Executive Summary
-**XStitcher** is a client-side, web-based cross-stitch design application built with **Svelte + TailwindCSS + Vite**. It combines the creative workflows of image editing software (Photoshop-style layers, toolbars, marquee selections, history stacks) with specialized craft capabilities (standard DMC thread catalogs, symbol-coded printable charts, skein usage estimators, and image-to-pattern digitization).
+**runStitch** is a client-side, web-based cross-stitch design application built with **Svelte + TailwindCSS + Vite**. It combines the creative workflows of image editing software (Photoshop-style layers, toolbars, marquee selections, history stacks) with specialized craft capabilities (standard DMC thread catalogs, symbol-coded printable charts, skein usage estimators, and image-to-pattern digitization).
 
 The application is engineered to run completely client-side in the browser and is optimized for both desktop and touch/tablet devices (iPad / stylus).
 

@@ -1,4 +1,4 @@
-import type { GridDimensions, Layer, PaletteColor } from '../types';
+import type { GridDimensions, Layer, PaletteColor, Stitch } from '../types';
 
 /**
  * Open X-Stitch XML Export and Import Engine (.oxs).
@@ -11,7 +11,7 @@ export function exportToOxs(
   palette: PaletteColor[],
   fabricColorHex: string = '#F9F6EE',
   projectName: string = 'Untitled Pattern',
-  author: string = 'XStitcher Studio'
+  author: string = 'runStitch Studio'
 ): string {
   const escapeXml = (str: string) =>
     (str || '')
@@ -22,14 +22,14 @@ export function exportToOxs(
       .replace(/'/g, '&apos;');
 
   let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
-  xml += `<open-x-stitch version="1.0" generator="XStitcher Studio" timestamp="${new Date().toISOString()}">\n`;
+  xml += `<open-x-stitch version="1.0" generator="runStitch Studio" timestamp="${new Date().toISOString()}">\n`;
 
   // 1. Chart Properties
   xml += `  <properties>\n`;
   xml += `    <title>${escapeXml(projectName)}</title>\n`;
   xml += `    <author>${escapeXml(author)}</author>\n`;
   xml += `    <artboard width="${grid.width}" height="${grid.height}" fabric-count="${grid.fabricCount}" fabric-color="${escapeXml(fabricColorHex)}" />\n`;
-  xml += `    <instructions>Created with XStitcher Studio • Standard full cross-stitches</instructions>\n`;
+  xml += `    <instructions>Created with runStitch Studio • Standard full cross-stitches</instructions>\n`;
   xml += `  </properties>\n`;
 
   // 2. Floss Palette
@@ -148,14 +148,15 @@ export function parseOxsXml(xmlString: string): ParsedOxsData {
     const visible = el.getAttribute('visible') !== 'false';
     const opacity = parseFloat(el.getAttribute('opacity') || '1.0');
 
-    const stitches: Record<string, { colorId: number }> = {};
+    const stitches: Record<string, Stitch> = {};
     const stitchEls = el.querySelectorAll('stitch');
 
     stitchEls.forEach(stEl => {
       const x = parseInt(stEl.getAttribute('x') || '0', 10);
       const y = parseInt(stEl.getAttribute('y') || '0', 10);
       const colorId = parseInt(stEl.getAttribute('color-id') || '1', 10);
-      stitches[`${x},${y}`] = { colorId };
+      const type = (stEl.getAttribute('type') as any) || 'full';
+      stitches[`${x},${y}`] = { colorId, type };
     });
 
     layers.push({

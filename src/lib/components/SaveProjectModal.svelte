@@ -36,7 +36,7 @@
 
   // PDF Form State
   let pdfTitle = '';
-  let pdfAuthor = 'XStitcher Studio';
+  let pdfAuthor = 'runStitch Studio';
   let pdfNotes = '';
   let chartStyle: 'color_symbols' | 'black_and_white' = 'color_symbols';
   let includeCover = true;

@@ -1,13 +1,16 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import {
     activeTool,
+    activeStitchType,
+    activeShapeTool,
     shapeFillMode,
     isBorderModalOpen,
     isMotifLibraryModalOpen,
     activeStamp,
     openTextModal
   } from '../stores/editorStore';
-  import type { ActiveTool } from '../types';
+  import type { ActiveTool, StitchType } from '../types';
   import {
     Move,
     BoxSelect,
@@ -23,7 +26,8 @@
     Stamp,
     Frame,
     Hand,
-    Type
+    Type,
+    Check
   } from 'lucide-svelte';
 
   const selectionTools: { id: ActiveTool; label: string; icon: any; shortcut: string }[] = [
@@ -33,21 +37,90 @@
   ];
 
   const drawTools: { id: ActiveTool; label: string; icon: any; shortcut: string }[] = [
-    { id: 'pencil', label: 'Pencil Stitch (B)', icon: Pencil, shortcut: 'B' },
     { id: 'eraser', label: 'Eraser (E)', icon: Eraser, shortcut: 'E' },
     { id: 'bucket', label: 'Flood Fill (F)', icon: PaintBucket, shortcut: 'F' },
     { id: 'picker', label: 'Eyedropper (I)', icon: Pipette, shortcut: 'I' }
   ];
+
+  const shapeVariants: { id: 'rectangle' | 'ellipse' | 'line'; label: string; icon: any; shortcut: string }[] = [
+    { id: 'rectangle', label: 'Rectangle (R)', icon: Square, shortcut: 'R' },
+    { id: 'ellipse', label: 'Ellipse (O)', icon: Circle, shortcut: 'O' },
+    { id: 'line', label: 'Line (L)', icon: Slash, shortcut: 'L' }
+  ];
+
+  const stitchTypeVariants: { id: StitchType; label: string; symbol: string; desc: string }[] = [
+    { id: 'full', label: 'Full Cross', symbol: '✕', desc: 'Standard X stitch' },
+    { id: 'half_forward', label: 'Half Forward', symbol: '╱', desc: 'Diagonal / stitch' },
+    { id: 'half_back', label: 'Half Back', symbol: '╲', desc: 'Diagonal \\ stitch' }
+  ];
+
+  let openFlyout: 'shapes' | 'stitch' | null = null;
+  let longPressTimer: any = null;
+
+  function closeFlyout() {
+    openFlyout = null;
+    clearTimeout(longPressTimer);
+  }
+
+  function handlePointerDown(flyout: 'shapes' | 'stitch') {
+    clearTimeout(longPressTimer);
+    longPressTimer = setTimeout(() => {
+      openFlyout = flyout;
+    }, 350);
+  }
+
+  function handlePointerUp() {
+    clearTimeout(longPressTimer);
+  }
+
+  function selectShape(id: 'rectangle' | 'ellipse' | 'line') {
+    activeShapeTool.set(id);
+    activeTool.set(id);
+    closeFlyout();
+  }
+
+  function selectStitchType(type: StitchType) {
+    activeStitchType.set(type);
+    activeTool.set('pencil');
+    closeFlyout();
+  }
+
+  function toggleShapeTool() {
+    activeTool.set($activeShapeTool);
+  }
+
+  $: isShapeActive = $activeTool === 'line' || $activeTool === 'rectangle' || $activeTool === 'ellipse';
+
+  // Global click outside to dismiss flyouts
+  function handleWindowClick(e: MouseEvent) {
+    if (openFlyout) {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.tool-flyout-container')) {
+        closeFlyout();
+      }
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('click', handleWindowClick);
+  }
+
+  onDestroy(() => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('click', handleWindowClick);
+    }
+    clearTimeout(longPressTimer);
+  });
 </script>
 
-<aside class="w-14 bg-[#1f1f26] border-r border-[#2e2e38] flex flex-col items-center py-3 select-none z-20 space-y-2.5 shadow-md overflow-y-auto overflow-x-hidden">
+<aside class="w-14 bg-[#1f1f26] border-r border-[#2e2e38] flex flex-col items-center py-3 select-none z-20 space-y-2.5 shadow-md relative">
   <!-- Move Tool (M) -->
   <button
     class="w-10 h-10 rounded-lg flex items-center justify-center transition-all relative group
     {$activeTool === 'move'
       ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
       : 'text-gray-400 hover:text-white hover:bg-[#2b2b36]'}"
-    on:click={() => activeTool.set('move')}
+    on:click={() => { closeFlyout(); activeTool.set('move'); }}
     title="Move Tool (M) - Drag selections or whole layer"
     aria-label="Move Tool"
   >
@@ -67,12 +140,11 @@
         {$activeTool === tool.id
           ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
           : 'text-gray-400 hover:text-white hover:bg-[#2b2b36]'}"
-        on:click={() => activeTool.set(tool.id)}
+        on:click={() => { closeFlyout(); activeTool.set(tool.id); }}
         title={tool.label}
         aria-label={tool.label}
       >
         <svelte:component this={tool.icon} size={17} />
-        <!-- Tooltip -->
         <span class="absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
           {tool.label}
         </span>
@@ -84,18 +156,84 @@
 
   <!-- Primary Drawing Tools -->
   <div class="flex flex-col space-y-1 w-full items-center">
+    <!-- Pencil Tool with Stitch Type Flyout -->
+    <div class="relative tool-flyout-container">
+      <button
+        class="w-10 h-10 rounded-lg flex items-center justify-center transition-all relative group
+        {$activeTool === 'pencil'
+          ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+          : 'text-gray-400 hover:text-white hover:bg-[#2b2b36]'}"
+        on:click={() => {
+          if (openFlyout === 'stitch') {
+            closeFlyout();
+          } else {
+            activeTool.set('pencil');
+          }
+        }}
+        on:contextmenu|preventDefault={() => { openFlyout = openFlyout === 'stitch' ? null : 'stitch'; }}
+        on:pointerdown={() => handlePointerDown('stitch')}
+        on:pointerup={handlePointerUp}
+        on:pointerleave={handlePointerUp}
+        title="Pencil Stitch Tool (B) - Right-click or hold for stitch types"
+        aria-label="Pencil Tool"
+      >
+        {#if $activeStitchType === 'half_forward'}
+          <span class="font-bold text-lg leading-none select-none">╱</span>
+        {:else if $activeStitchType === 'half_back'}
+          <span class="font-bold text-lg leading-none select-none">╲</span>
+        {:else}
+          <Pencil size={19} />
+        {/if}
+
+        <!-- Tiny Photoshop Corner Mark Indicator -->
+        <button
+          type="button"
+          aria-label="Stitch types flyout"
+          class="absolute bottom-0.5 right-0.5 w-2 h-2 flex items-end justify-end cursor-pointer group/corner p-0 bg-transparent border-0"
+          on:click|stopPropagation={() => { openFlyout = openFlyout === 'stitch' ? null : 'stitch'; }}
+          title="Stitch types flyout"
+        >
+          <span class="w-0 h-0 border-solid border-t-0 border-l-0 border-r-[4.5px] border-b-[4.5px] border-transparent border-r-gray-400 group-hover/corner:border-r-indigo-300 pointer-events-none"></span>
+        </button>
+
+        <span class="absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
+          Pencil Stitch (B) [{$activeStitchType === 'half_forward' ? 'Half /' : ($activeStitchType === 'half_back' ? 'Half \\' : 'Full X')}]
+        </span>
+      </button>
+
+      <!-- Stitch Type Horizontal Flyout Menu -->
+      {#if openFlyout === 'stitch'}
+        <div class="absolute left-12 top-0 bg-[#1b1b24] border border-[#38384a] rounded-xl shadow-2xl p-1.5 flex items-center space-x-1.5 z-50">
+          {#each stitchTypeVariants as st}
+            <button
+              type="button"
+              class="flex flex-col items-center justify-center p-2 rounded-lg transition-all min-w-[54px]
+              {$activeStitchType === st.id && $activeTool === 'pencil'
+                ? 'bg-indigo-600 text-white shadow-md'
+                : 'text-gray-300 hover:text-white hover:bg-[#2b2b3a]'}"
+              on:click={() => selectStitchType(st.id)}
+              title={st.desc}
+            >
+              <span class="text-base font-bold leading-none mb-1">{st.symbol}</span>
+              <span class="text-[10px] font-medium leading-tight whitespace-nowrap">{st.label}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+
+    <!-- Other Draw Tools: Eraser, Bucket, Pipette -->
     {#each drawTools as tool}
       <button
         class="w-10 h-10 rounded-lg flex items-center justify-center transition-all relative group
         {$activeTool === tool.id
           ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
           : 'text-gray-400 hover:text-white hover:bg-[#2b2b36]'}"
-        on:click={() => activeTool.set(tool.id)}
+        on:click={() => { closeFlyout(); activeTool.set(tool.id); }}
         title={tool.label}
         aria-label={tool.label}
       >
         <svelte:component this={tool.icon} size={19} />
-        <!-- Tooltip -->
         <span class="absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
           {tool.label}
         </span>
@@ -105,85 +243,103 @@
 
   <div class="w-7 h-px bg-[#2e2e38]"></div>
 
-  <!-- Geometric Shape Tools (Visually Grouped Cluster) -->
-  <div class="flex flex-col space-y-1 w-11 items-center p-1 bg-[#17171e] rounded-xl border border-[#2d2d3a] shadow-inner">
-    <!-- Line Tool -->
+  <!-- Consolidated Geometric Shape Slot with Photoshop Flyout -->
+  <div class="relative tool-flyout-container">
     <button
-      class="w-9 h-9 rounded-lg flex items-center justify-center transition-all relative group
-      {$activeTool === 'line'
+      class="w-10 h-10 rounded-lg flex items-center justify-center transition-all relative group
+      {isShapeActive
         ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
         : 'text-gray-400 hover:text-white hover:bg-[#2b2b36]'}"
-      on:click={() => activeTool.set('line')}
-      title="Line Tool (L)"
-      aria-label="Line Tool"
+      on:click={() => {
+        if (openFlyout === 'shapes') {
+          closeFlyout();
+        } else {
+          toggleShapeTool();
+        }
+      }}
+      on:contextmenu|preventDefault={() => { openFlyout = openFlyout === 'shapes' ? null : 'shapes'; }}
+      on:pointerdown={() => handlePointerDown('shapes')}
+      on:pointerup={handlePointerUp}
+      on:pointerleave={handlePointerUp}
+      title="Geometric Shapes - Right-click or hold for Line, Rectangle, Ellipse"
+      aria-label="Shape Tools"
     >
-      <Slash size={17} />
-      <span class="absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
-        Line Tool (L)
-      </span>
-    </button>
+      {#if $activeShapeTool === 'rectangle'}
+        <Square
+          size={18}
+          fill={$shapeFillMode === 'filled' ? 'currentColor' : 'none'}
+          strokeWidth={$shapeFillMode === 'filled' ? 0 : 2}
+        />
+      {:else if $activeShapeTool === 'ellipse'}
+        <Circle
+          size={18}
+          fill={$shapeFillMode === 'filled' ? 'currentColor' : 'none'}
+          strokeWidth={$shapeFillMode === 'filled' ? 0 : 2}
+        />
+      {:else}
+        <Slash size={18} />
+      {/if}
 
-    <!-- Rectangle Tool (Filled icon when Solid mode is active) -->
-    <button
-      class="w-9 h-9 rounded-lg flex items-center justify-center transition-all relative group
-      {$activeTool === 'rectangle'
-        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-        : 'text-gray-400 hover:text-white hover:bg-[#2b2b36]'}"
-      on:click={() => activeTool.set('rectangle')}
-      title="Rectangle Tool (R) - {$shapeFillMode === 'filled' ? 'Solid Filled' : 'Hollow Outline'}"
-      aria-label="Rectangle Tool"
-    >
-      <Square
-        size={17}
-        fill={$shapeFillMode === 'filled' ? 'currentColor' : 'none'}
-        strokeWidth={$shapeFillMode === 'filled' ? 0 : 2}
-      />
-      <span class="absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
-        Rectangle Tool (R) [{$shapeFillMode === 'filled' ? 'Solid' : 'Outline'}]
-      </span>
-    </button>
-
-    <!-- Ellipse Tool (Filled icon when Solid mode is active) -->
-    <button
-      class="w-9 h-9 rounded-lg flex items-center justify-center transition-all relative group
-      {$activeTool === 'ellipse'
-        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-        : 'text-gray-400 hover:text-white hover:bg-[#2b2b36]'}"
-      on:click={() => activeTool.set('ellipse')}
-      title="Ellipse Tool (O) - {$shapeFillMode === 'filled' ? 'Solid Filled' : 'Hollow Outline'}"
-      aria-label="Ellipse Tool"
-    >
-      <Circle
-        size={17}
-        fill={$shapeFillMode === 'filled' ? 'currentColor' : 'none'}
-        strokeWidth={$shapeFillMode === 'filled' ? 0 : 2}
-      />
-      <span class="absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
-        Ellipse Tool (O) [{$shapeFillMode === 'filled' ? 'Solid' : 'Outline'}]
-      </span>
-    </button>
-
-    <!-- Fill / Outline Mode Toggle (Iconified Dual Segment) -->
-    <div class="flex items-center justify-center bg-[#131319] p-0.5 rounded-md border border-[#2e2e3c] mt-0.5" title="Shape Style: Outline vs Solid Fill">
+      <!-- Tiny Photoshop Corner Mark Indicator -->
       <button
         type="button"
-        class="w-4 h-4 rounded flex items-center justify-center transition-colors {$shapeFillMode === 'outline' ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:text-gray-300'}"
-        on:click={() => shapeFillMode.set('outline')}
-        title="Outline (Hollow)"
-        aria-label="Outline mode"
+        aria-label="Shape tools flyout"
+        class="absolute bottom-0.5 right-0.5 w-2 h-2 flex items-end justify-end cursor-pointer group/corner p-0 bg-transparent border-0"
+        on:click|stopPropagation={() => { openFlyout = openFlyout === 'shapes' ? null : 'shapes'; }}
+        title="Shape tools flyout"
       >
-        <Square size={9} strokeWidth={2} fill="none" />
+        <span class="w-0 h-0 border-solid border-t-0 border-l-0 border-r-[4.5px] border-b-[4.5px] border-transparent border-r-gray-400 group-hover/corner:border-r-indigo-300 pointer-events-none"></span>
       </button>
-      <button
-        type="button"
-        class="w-4 h-4 rounded flex items-center justify-center transition-colors {$shapeFillMode === 'filled' ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:text-gray-300'}"
-        on:click={() => shapeFillMode.set('filled')}
-        title="Solid (Filled)"
-        aria-label="Solid Fill mode"
-      >
-        <Square size={9} strokeWidth={0} fill="currentColor" />
-      </button>
-    </div>
+
+      <span class="absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
+        Shape ({$activeShapeTool.toUpperCase()}) • Right-click or hold for flyout
+      </span>
+    </button>
+
+    <!-- Shape Flyout Menu -->
+    {#if openFlyout === 'shapes'}
+      <div class="absolute left-12 top-0 bg-[#1b1b24] border border-[#38384a] rounded-xl shadow-2xl p-2 flex flex-col space-y-2 z-50 min-w-[170px]">
+        <div class="text-[10px] uppercase font-semibold text-gray-400 px-1 tracking-wider">Shape Tools</div>
+        <div class="flex flex-col space-y-1">
+          {#each shapeVariants as sv}
+            <button
+              type="button"
+              class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors
+              {$activeTool === sv.id && isShapeActive
+                ? 'bg-indigo-600 text-white font-medium'
+                : 'text-gray-300 hover:text-white hover:bg-[#2b2b3a]'}"
+              on:click={() => selectShape(sv.id)}
+            >
+              <div class="flex items-center space-x-2">
+                <svelte:component this={sv.icon} size={15} />
+                <span>{sv.label}</span>
+              </div>
+              <span class="text-[10px] text-gray-400">{sv.shortcut}</span>
+            </button>
+          {/each}
+        </div>
+
+        <div class="border-t border-[#2e2e3c] pt-2 flex items-center justify-between px-1">
+          <span class="text-[11px] text-gray-400">Style:</span>
+          <div class="flex items-center space-x-1 bg-[#121218] p-0.5 rounded border border-[#2b2b3a]">
+            <button
+              type="button"
+              class="px-2 py-0.5 rounded text-[11px] transition-colors {$shapeFillMode === 'outline' ? 'bg-indigo-600 text-white font-medium' : 'text-gray-400 hover:text-gray-200'}"
+              on:click={() => shapeFillMode.set('outline')}
+            >
+              Outline
+            </button>
+            <button
+              type="button"
+              class="px-2 py-0.5 rounded text-[11px] transition-colors {$shapeFillMode === 'filled' ? 'bg-indigo-600 text-white font-medium' : 'text-gray-400 hover:text-gray-200'}"
+              on:click={() => shapeFillMode.set('filled')}
+            >
+              Solid
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
   </div>
 
   <div class="w-7 h-px bg-[#2e2e38]"></div>
@@ -197,7 +353,7 @@
       {$activeTool === 'stamp'
         ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
         : 'text-emerald-400 hover:text-white hover:bg-[#2b2b36]'}"
-      on:click={() => isMotifLibraryModalOpen.set(true)}
+      on:click={() => { closeFlyout(); isMotifLibraryModalOpen.set(true); }}
       title="Motif & Stamp Library"
       aria-label="Motif Library"
     >
@@ -211,7 +367,7 @@
     <button
       type="button"
       class="w-10 h-10 rounded-lg flex items-center justify-center transition-all relative group text-amber-400 hover:text-white hover:bg-[#2b2b36]"
-      on:click={() => isBorderModalOpen.set(true)}
+      on:click={() => { closeFlyout(); isBorderModalOpen.set(true); }}
       title="Border Repeater & Perimeter Maker"
       aria-label="Border Maker"
     >
@@ -228,7 +384,7 @@
       {$activeTool === 'text'
         ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
         : 'text-indigo-400 hover:text-white hover:bg-[#2b2b36]'}"
-      on:click={() => { activeTool.set('text'); openTextModal(); }}
+      on:click={() => { closeFlyout(); activeTool.set('text'); openTextModal(); }}
       title="Typography Text Tool (T)"
       aria-label="Text Tool"
     >
@@ -245,7 +401,7 @@
       {$activeTool === 'pan'
         ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
         : 'text-gray-400 hover:text-white hover:bg-[#2b2b36]'}"
-      on:click={() => activeTool.set('pan')}
+      on:click={() => { closeFlyout(); activeTool.set('pan'); }}
       title="Pan Hand (H)"
       aria-label="Pan Tool"
     >
@@ -255,5 +411,4 @@
       </span>
     </button>
   </div>
-
 </aside>

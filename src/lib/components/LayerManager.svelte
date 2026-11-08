@@ -3,6 +3,8 @@
     layers,
     activeLayerId,
     activeLayer,
+    createNewLayer,
+    deleteLayer,
     duplicateLayer,
     moveLayer,
     mergeLayerDown,
@@ -54,20 +56,7 @@
   let fileInputEl: HTMLInputElement;
 
   function addNewLayer() {
-    const nextNum = $layers.length + 1;
-    const newId = `layer-${Date.now()}`;
-    layers.update(ls => [
-      ...ls,
-      {
-        id: newId,
-        name: `Layer ${nextNum}`,
-        visible: true,
-        locked: false,
-        opacity: 1.0,
-        stitches: {}
-      }
-    ]);
-    activeLayerId.set(newId);
+    createNewLayer();
   }
 
   function toggleVisible(id: string) {
@@ -78,12 +67,8 @@
     layers.update(ls => ls.map(l => l.id === id ? { ...l, locked: !l.locked } : l));
   }
 
-  function deleteLayer(id: string) {
-    if ($layers.length <= 1) return; // Keep at least one layer
-    layers.update(ls => ls.filter(l => l.id !== id));
-    if ($activeLayerId === id) {
-      activeLayerId.set($layers[0].id);
-    }
+  function handleDeleteLayer(id: string) {
+    deleteLayer(id);
   }
 
   function startRename(layer: { id: string; name: string }) {
@@ -133,7 +118,7 @@
     };
     reader.readAsDataURL(file);
     input.value = '';
-    showImportMenu = false;
+    showNewLayerMenu = false;
   }
 
   function handleLoadSample(sampleUrl: string, sampleTitle: string) {
@@ -142,7 +127,7 @@
       addReferenceImageLayer(sampleUrl, sampleTitle, img.naturalWidth, img.naturalHeight);
     };
     img.src = sampleUrl;
-    showImportMenu = false;
+    showNewLayerMenu = false;
   }
 
   // Drag-and-drop handlers

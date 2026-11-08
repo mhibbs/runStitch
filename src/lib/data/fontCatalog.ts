@@ -1,5 +1,5 @@
 /**
- * Curated Google Fonts catalog and dynamic font loader for XStitcher Typography.
+ * Curated Google Fonts catalog and dynamic font loader for runStitch Typography.
  */
 
 export interface CuratedFont {
@@ -360,7 +360,6 @@ export async function loadGoogleFont(fontInput: CuratedFont | string): Promise<b
   }
 }
 
-/**
 export interface TextDimensionsResult {
   width: number;
   height: number;

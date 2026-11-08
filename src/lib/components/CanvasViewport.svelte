@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { get } from 'svelte/store';
+  import type { Stitch } from '../types';
   import {
     grid,
     layers,
@@ -54,8 +56,15 @@
     openTextModal,
     quickDigitizeTextLayer,
     commitLayerStitchesMove,
+    cloneLayers,
     undoStack,
-    redoStack
+    redoStack,
+    wandTolerance,
+    wandContiguous,
+    lassoFilterMode,
+    selectionCombineMode,
+    activeStitchType,
+    brushSize
   } from '../stores/editorStore';
   import {
     renderBackground,
@@ -132,6 +141,7 @@
 
   // Active Image Layer transform tracking
   let isTransformingImage = false;
+  let transformStartLayersSnapshot: any = null;
   let activeImageHandle: ImageHandleType | null = null;
   let dynamicCursor = '';
   let imageTransformStart = {
@@ -310,6 +320,7 @@
       const handle = getImageHandleAt(clientX, clientY, $activeLayer.image, $viewport);
       if (handle) {
         isTransformingImage = true;
+        transformStartLayersSnapshot = cloneLayers($layers);
         activeImageHandle = handle;
         imageTransformStart = {
           x: $activeLayer.image.x,
@@ -336,14 +347,16 @@
       }
       if ($selection && isCellSelected($selection, x, y)) {
         liftSelection(e.altKey);
-        if ($floatingSelection) {
+        const floatSel = get(floatingSelection);
+        if (floatSel) {
           isDraggingFloating = true;
-          dragFloatingOffset = { dx: x - $floatingSelection.x, dy: y - $floatingSelection.y };
+          dragFloatingOffset = { dx: x - floatSel.x, dy: y - floatSel.y };
         }
         return;
       }
       if ($activeLayer && ($activeLayer.type === 'image' || $activeLayer.type === 'text') && $activeLayer.image) {
         isTransformingImage = true;
+        transformStartLayersSnapshot = cloneLayers($layers);
         activeImageHandle = 'body';
         imageTransformStart = {
           x: $activeLayer.image.x,
@@ -413,8 +426,9 @@
       return;
     }
 
-    // Clicking off an active selection deselects (unless holding Shift/Alt to modify)
-    if ($selection && !e.shiftKey && !e.altKey && !isCellSelected($selection, x, y)) {
+    // Clicking off an active selection deselects (unless holding Shift/Alt or combine mode is add/sub)
+    const isCombineModify = e.shiftKey || e.altKey || $selectionCombineMode === 'add' || $selectionCombineMode === 'subtract';
+    if ($selection && !isCombineModify && !isCellSelected($selection, x, y)) {
       clearSelection();
     }
 
@@ -425,15 +439,17 @@
         if ($activeLayer.type === 'image' && $activeLayer.image) {
           const img = getCachedImageElement($activeLayer.image.src);
           if (img) {
-            cells = floodSelectImage(x, y, img, $activeLayer.image, 20, $grid.width, $grid.height);
+            cells = floodSelectImage(x, y, img, $activeLayer.image, $wandTolerance, $grid.width, $grid.height, $wandContiguous);
           }
         } else {
-          cells = floodSelectStitches(x, y, $activeLayer, $grid.width, $grid.height);
+          cells = floodSelectStitches(x, y, $activeLayer, $grid.width, $grid.height, $wandTolerance, $wandContiguous, $palette);
         }
 
-        if (e.shiftKey) {
+        const isAdd = e.shiftKey || $selectionCombineMode === 'add';
+        const isSub = e.altKey || $selectionCombineMode === 'subtract';
+        if (isAdd) {
           setSelection(unionSelection($selection, cells));
-        } else if (e.altKey) {
+        } else if (isSub) {
           setSelection(subtractSelection($selection, cells));
         } else {
           setSelection(createSelectionFromCells(cells));
@@ -446,7 +462,9 @@
     // Freehand Lasso Selection Tool logic
     if ($activeTool === 'lasso') {
       isDrawingLasso = true;
-      lassoPoints = [{ x, y }];
+      const preciseX = (e.clientX - $viewport.panX) / $viewport.zoom;
+      const preciseY = (e.clientY - $viewport.panY) / $viewport.zoom;
+      lassoPoints = [{ x: preciseX, y: preciseY }];
       redrawOverlay();
       return;
     }
@@ -669,11 +687,13 @@
       return;
     }
 
-    // Drawing freehand lasso path
+    // Drawing freehand lasso path with sub-grid precision
     if (isDrawingLasso && lassoPoints) {
+      const preciseX = (e.clientX - $viewport.panX) / $viewport.zoom;
+      const preciseY = (e.clientY - $viewport.panY) / $viewport.zoom;
       const lastPt = lassoPoints[lassoPoints.length - 1];
-      if (lastPt.x !== x || lastPt.y !== y) {
-        lassoPoints = [...lassoPoints, { x, y }];
+      if (Math.hypot(preciseX - lastPt.x, preciseY - lastPt.y) > 0.15) {
+        lassoPoints = [...lassoPoints, { x: preciseX, y: preciseY }];
         redrawOverlay();
       }
       return;
@@ -735,18 +755,74 @@
         redrawStitches();
       }
       if (isTransformingImage) {
+        if ($activeLayer?.image && transformStartLayersSnapshot) {
+          const img = $activeLayer.image;
+          const hasChanged = img.x !== imageTransformStart.x ||
+                             img.y !== imageTransformStart.y ||
+                             img.width !== imageTransformStart.width ||
+                             img.height !== imageTransformStart.height ||
+                             img.rotation !== imageTransformStart.rotation;
+          if (hasChanged) {
+            undoStack.update(u => [
+              ...u.slice(-50),
+              {
+                description: `Transform ${$activeLayer.name || 'Layer'}`,
+                layerId: $activeLayer.id,
+                before: {},
+                after: {},
+                layersSnapshot: transformStartLayersSnapshot
+              }
+            ]);
+            redoStack.set([]);
+          }
+        }
         isTransformingImage = false;
         activeImageHandle = null;
+        transformStartLayersSnapshot = null;
       }
 
       // Finalize Freehand Lasso Selection
       if (isDrawingLasso && lassoPoints) {
         if (lassoPoints.length >= 3) {
-          const cells = getLassoCells(lassoPoints, $grid.width, $grid.height);
-          const cellSet = new Set(cells.map(c => `${c.x},${c.y}`));
-          if (e.shiftKey) {
+          const rawCells = getLassoCells(lassoPoints, $grid.width, $grid.height);
+          let filteredCells = rawCells;
+
+          if ($lassoFilterMode === 'stitches_only') {
+            filteredCells = rawCells.filter(c => !!$activeLayer.stitches[`${c.x},${c.y}`]);
+          } else if ($lassoFilterMode === 'active_color') {
+            const activeColor = $palette.find(p => p.id === $selectedColorId);
+            const targetRGB = activeColor ? {
+              r: parseInt(activeColor.hex.slice(1, 3), 16) || 0,
+              g: parseInt(activeColor.hex.slice(3, 5), 16) || 0,
+              b: parseInt(activeColor.hex.slice(5, 7), 16) || 0
+            } : null;
+            const maxDistance = ($wandTolerance / 100) * 442;
+            const colorMap = new Map<number, { r: number; g: number; b: number }>();
+            for (const p of $palette) {
+              colorMap.set(p.id, {
+                r: parseInt(p.hex.slice(1, 3), 16) || 0,
+                g: parseInt(p.hex.slice(3, 5), 16) || 0,
+                b: parseInt(p.hex.slice(5, 7), 16) || 0
+              });
+            }
+
+            filteredCells = rawCells.filter(c => {
+              const st = $activeLayer.stitches[`${c.x},${c.y}`];
+              if (!st || !targetRGB) return false;
+              if (st.colorId === $selectedColorId) return true;
+              if ($wandTolerance === 0) return false;
+              const nRGB = colorMap.get(st.colorId);
+              if (!nRGB) return false;
+              return Math.hypot(targetRGB.r - nRGB.r, targetRGB.g - nRGB.g, targetRGB.b - nRGB.b) <= maxDistance;
+            });
+          }
+
+          const cellSet = new Set(filteredCells.map(c => `${c.x},${c.y}`));
+          const isAdd = e.shiftKey || $selectionCombineMode === 'add';
+          const isSub = e.altKey || $selectionCombineMode === 'subtract';
+          if (isAdd) {
             setSelection(unionSelection($selection, cellSet));
-          } else if (e.altKey) {
+          } else if (isSub) {
             setSelection(subtractSelection($selection, cellSet));
           } else {
             setSelection(createSelectionFromCells(cellSet));
@@ -762,7 +838,7 @@
         beginStroke(toolLabel);
         for (const cell of shapePreviewCells) {
           if (cell.x >= 0 && cell.x < $grid.width && cell.y >= 0 && cell.y < $grid.height) {
-            setStitchAt(cell.x, cell.y, $selectedColorId);
+            setStitchAt(cell.x, cell.y, $selectedColorId, $activeStitchType);
           }
         }
         commitStroke(toolLabel);
@@ -788,16 +864,18 @@
           const minY = Math.min(selectionStart.y, clampedY);
           const maxY = Math.max(selectionStart.y, clampedY);
 
-          if (e.shiftKey || e.altKey) {
+          const isAdd = e.shiftKey || $selectionCombineMode === 'add';
+          const isSub = e.altKey || $selectionCombineMode === 'subtract';
+          if (isAdd || isSub) {
             const boxCells = new Set<string>();
             for (let by = minY; by <= maxY; by++) {
               for (let bx = minX; bx <= maxX; bx++) {
                 boxCells.add(`${bx},${by}`);
               }
             }
-            if (e.shiftKey) {
+            if (isAdd) {
               setSelection(unionSelection($selection, boxCells));
-            } else if (e.altKey) {
+            } else if (isSub) {
               setSelection(subtractSelection($selection, boxCells));
             }
           } else {

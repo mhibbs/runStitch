@@ -11,6 +11,8 @@
     redo,
     canUndo,
     canRedo,
+    undoStack,
+    redoStack,
     setFabricCount,
     clearCurrentLayer,
     triggerZoomToFit,
@@ -28,6 +30,7 @@
     copySelection,
     cutSelection,
     pasteClipboard,
+    executeUniversalPaste,
     selectAll,
     clearSelection,
     invertCurrentSelection,
@@ -327,11 +330,11 @@
           on:click={() => { closeMenu(); undo(); }}
           disabled={!$canUndo}
         >
-          <div class="flex items-center space-x-2">
-            <Undo2 size={14} />
-            <span>Undo</span>
+          <div class="flex items-center space-x-2 truncate pr-2">
+            <Undo2 size={14} class="shrink-0" />
+            <span class="truncate">Undo {$undoStack.length > 0 ? $undoStack[$undoStack.length - 1].description : ''}</span>
           </div>
-          <span class="text-[10px] text-gray-400">Cmd+Z</span>
+          <span class="text-[10px] text-gray-400 shrink-0">Cmd+Z</span>
         </button>
 
         <button
@@ -339,11 +342,11 @@
           on:click={() => { closeMenu(); redo(); }}
           disabled={!$canRedo}
         >
-          <div class="flex items-center space-x-2">
-            <Redo2 size={14} />
-            <span>Redo</span>
+          <div class="flex items-center space-x-2 truncate pr-2">
+            <Redo2 size={14} class="shrink-0" />
+            <span class="truncate">Redo {$redoStack.length > 0 ? $redoStack[$redoStack.length - 1].description : ''}</span>
           </div>
-          <span class="text-[10px] text-gray-400">Cmd+Shift+Z</span>
+          <span class="text-[10px] text-gray-400 shrink-0">Cmd+Shift+Z</span>
         </button>
 
         <button
@@ -371,9 +374,8 @@
         </button>
 
         <button
-          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-indigo-600 hover:text-white transition-colors disabled:opacity-40"
-          on:click={() => { closeMenu(); pasteClipboard(); }}
-          disabled={!$clipboard}
+          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-indigo-600 hover:text-white transition-colors"
+          on:click={() => { closeMenu(); executeUniversalPaste(); }}
         >
           <div class="flex items-center space-x-2">
             <Clipboard size={14} />
@@ -451,12 +453,12 @@
         <button
           class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-amber-600 hover:text-white transition-colors disabled:opacity-40"
           on:click={() => { closeMenu(); clearPasteboardStitches(); }}
-          disabled={$patternBounds.pasteboardStitches === 0}
+          disabled={!$patternBounds || $patternBounds.pasteboardStitches === 0}
           title="Remove stray stitches outside the pattern artboard"
         >
           <div class="flex items-center space-x-2">
             <Trash2 size={14} class="text-amber-400" />
-            <span>Clear Pasteboard ({$patternBounds.pasteboardStitches})</span>
+            <span>Clear Pasteboard ({$patternBounds ? $patternBounds.pasteboardStitches : 0})</span>
           </div>
         </button>
       </div>
@@ -856,7 +858,7 @@
         </button>
         <div class="my-1 border-t border-gray-700"></div>
         <div class="px-3 py-1.5 text-[11px] text-gray-400">
-          <span class="text-white font-bold">XStitcher Studio</span> v0.2
+          <span class="text-white font-bold">runStitch Studio</span> v0.2
         </div>
       </div>
     {/if}

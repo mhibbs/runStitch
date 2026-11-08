@@ -3,7 +3,7 @@
  * Provides Bresenham line, rectangle, and midpoint ellipse algorithms.
  */
 
-import type { Layer, ReferenceImage, SelectionBox } from '../types';
+import type { Layer, PaletteColor, ReferenceImage, SelectionBox } from '../types';
 
 export interface Point {
   x: number;
@@ -343,15 +343,18 @@ export function getLassoCells(points: Point[], gridW: number, gridH: number): Po
 }
 
 /**
- * 4-connected BFS flood selection for stitches on a Stitch layer.
- * Selects all contiguous stitches of the exact same colorId (or empty contiguous cells).
+ * 4-connected BFS or global color selection for stitches on a Stitch layer.
+ * Supports configurable color tolerance and contiguous vs. whole-layer matching.
  */
 export function floodSelectStitches(
   startX: number,
   startY: number,
   layer: Layer,
   gridW: number,
-  gridH: number
+  gridH: number,
+  tolerance: number = 0,
+  contiguous: boolean = true,
+  palette: PaletteColor[] = []
 ): Set<string> {
   const result = new Set<string>();
   if (startX < 0 || startX >= gridW || startY < 0 || startY >= gridH) {
@@ -362,6 +365,55 @@ export function floodSelectStitches(
   const startStitch = layer.stitches[startKey];
   const targetColorId = startStitch ? startStitch.colorId : null;
 
+  // Build quick map of palette RGBs
+  const colorMap = new Map<number, { r: number; g: number; b: number }>();
+  for (const c of palette) {
+    const r = parseInt(c.hex.slice(1, 3), 16) || 0;
+    const g = parseInt(c.hex.slice(3, 5), 16) || 0;
+    const b = parseInt(c.hex.slice(5, 7), 16) || 0;
+    colorMap.set(c.id, { r, g, b });
+  }
+
+  const targetRGB = targetColorId !== null ? colorMap.get(targetColorId) : null;
+  const maxDistance = (tolerance / 100) * 442; // Euclidean color distance max is sqrt(255^2*3) = 441.67
+
+  function matches(stitchColorId: number | null): boolean {
+    if (targetColorId === null) {
+      return stitchColorId === null;
+    }
+    if (stitchColorId === null) return false;
+    if (stitchColorId === targetColorId) return true;
+    if (tolerance === 0 || !targetRGB) return false;
+
+    const nRGB = colorMap.get(stitchColorId);
+    if (!nRGB) return false;
+    const dist = Math.hypot(targetRGB.r - nRGB.r, targetRGB.g - nRGB.g, targetRGB.b - nRGB.b);
+    return dist <= maxDistance;
+  }
+
+  // Non-contiguous mode: scan all stitches or empty cells across the layer
+  if (!contiguous) {
+    if (targetColorId === null) {
+      for (let y = 0; y < gridH; y++) {
+        for (let x = 0; x < gridW; x++) {
+          const key = `${x},${y}`;
+          if (!layer.stitches[key]) {
+            result.add(key);
+          }
+        }
+      }
+    } else {
+      for (const [key, st] of Object.entries(layer.stitches)) {
+        const [x, y] = key.split(',').map(Number);
+        if (x >= 0 && x < gridW && y >= 0 && y < gridH && matches(st.colorId)) {
+          result.add(key);
+        }
+      }
+    }
+    return result;
+  }
+
+  // Contiguous 4-connected BFS flood selection
   const queue: Point[] = [{ x: startX, y: startY }];
   result.add(startKey);
 
@@ -384,7 +436,7 @@ export function floodSelectStitches(
         if (!result.has(nKey)) {
           const nStitch = layer.stitches[nKey];
           const nColorId = nStitch ? nStitch.colorId : null;
-          if (nColorId === targetColorId) {
+          if (matches(nColorId)) {
             result.add(nKey);
             queue.push({ x: nx, y: ny });
           }
@@ -397,8 +449,8 @@ export function floodSelectStitches(
 }
 
 /**
- * 4-connected BFS flood selection on an Image layer.
- * Samples pixel color at grid resolution and selects contiguous cells within color distance tolerance.
+ * 4-connected BFS or global color selection on an Image layer.
+ * Samples pixel color at grid resolution and selects cells within color distance tolerance.
  */
 export function floodSelectImage(
   startX: number,
@@ -407,7 +459,8 @@ export function floodSelectImage(
   refImage: ReferenceImage,
   tolerance: number = 20,
   gridW: number,
-  gridH: number
+  gridH: number,
+  contiguous: boolean = true
 ): Set<string> {
   const result = new Set<string>();
   const W = Math.max(1, Math.round(refImage.width));
@@ -446,8 +499,40 @@ export function floodSelectImage(
   const targetB = data[startIdx + 2];
   const targetA = data[startIdx + 3];
 
-  const maxDist = tolerance * 2.5;
+  const maxDist = tolerance * 3.5;
 
+  function pixelMatches(idx: number): boolean {
+    const nr = data[idx];
+    const ng = data[idx + 1];
+    const nb = data[idx + 2];
+    const na = data[idx + 3];
+
+    if (targetA < 100 && na < 100) return true;
+    if (targetA >= 100 && na >= 100) {
+      const dist = Math.hypot(nr - targetR, ng - targetG, nb - targetB);
+      return dist <= maxDist;
+    }
+    return false;
+  }
+
+  // Non-contiguous mode: scan all pixels
+  if (!contiguous) {
+    for (let py = 0; py < H; py++) {
+      for (let px = 0; px < W; px++) {
+        const idx = (py * W + px) * 4;
+        if (pixelMatches(idx)) {
+          const gx = refImage.x + px;
+          const gy = refImage.y + py;
+          if (gx >= 0 && gx < gridW && gy >= 0 && gy < gridH) {
+            result.add(`${gx},${gy}`);
+          }
+        }
+      }
+    }
+    return result;
+  }
+
+  // Contiguous 4-connected BFS
   const visited = new Uint8Array(W * H);
   const queue: Point[] = [{ x: relX, y: relY }];
   visited[relY * W + relX] = 1;
@@ -474,23 +559,7 @@ export function floodSelectImage(
 
         if (!visited[cellIdx]) {
           visited[cellIdx] = 1;
-          const nr = data[nIdx];
-          const ng = data[nIdx + 1];
-          const nb = data[nIdx + 2];
-          const na = data[nIdx + 3];
-
-          // If both have alpha < 100, they match as transparent
-          let matches = false;
-          if (targetA < 100 && na < 100) {
-            matches = true;
-          } else if (targetA >= 100 && na >= 100) {
-            const dist = Math.hypot(nr - targetR, ng - targetG, nb - targetB);
-            if (dist <= maxDist) {
-              matches = true;
-            }
-          }
-
-          if (matches) {
+          if (pixelMatches(nIdx)) {
             const gx = refImage.x + nx;
             const gy = refImage.y + ny;
             if (gx >= 0 && gx < gridW && gy >= 0 && gy < gridH) {

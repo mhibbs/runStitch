@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import type { GridDimensions, Layer, PaletteColor } from '../types';
+import type { GridDimensions, Layer, PaletteColor, StitchType } from '../types';
 import { getColorLuminance } from '../data/dmcPalette';
 
 export interface PdfExportOptions {
@@ -26,7 +26,7 @@ export function getArtboardStitchData(
   layers: Layer[],
   palette: PaletteColor[]
 ) {
-  const artboardStitches = new Map<string, number>(); // `${x},${y}` -> colorId
+  const artboardStitches = new Map<string, { colorId: number; type: StitchType }>(); // `${x},${y}` -> { colorId, type }
   const colorCounts = new Map<number, number>(); // colorId -> count
   let totalStitches = 0;
 
@@ -41,7 +41,7 @@ export function getArtboardStitchData(
       const y = parseInt(yStr, 10);
 
       if (x >= 0 && x < grid.width && y >= 0 && y < grid.height) {
-        artboardStitches.set(key, stitch.colorId);
+        artboardStitches.set(key, { colorId: stitch.colorId, type: stitch.type || 'full' });
         colorCounts.set(stitch.colorId, (colorCounts.get(stitch.colorId) || 0) + 1);
         totalStitches++;
       } else {
@@ -69,7 +69,7 @@ export function getArtboardStitchData(
  */
 export function renderMockupCanvas(
   grid: GridDimensions,
-  artboardStitches: Map<string, number>,
+  artboardStitches: Map<string, { colorId: number; type: StitchType }>,
   palette: PaletteColor[],
   fabricColorHex: string = '#F9F6EE',
   maxDim: number = 900
@@ -101,55 +101,60 @@ export function renderMockupCanvas(
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  for (const [key, colorId] of artboardStitches.entries()) {
+  for (const [key, item] of artboardStitches.entries()) {
     const [xStr, yStr] = key.split(',');
     const x = parseInt(xStr, 10);
     const y = parseInt(yStr, 10);
-    const color = palMap.get(colorId);
+    const color = palMap.get(item.colorId);
     if (!color) continue;
 
     const px = x * cellSize;
     const py = y * cellSize;
+    const type = item.type || 'full';
 
-    // Bottom stitch shadow
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.22)';
-    ctx.lineWidth = threadWidth;
-    ctx.beginPath();
-    ctx.moveTo(px + pad, py + cellSize - pad + 1);
-    ctx.lineTo(px + cellSize - pad, py + pad + 1);
-    ctx.stroke();
+    if (type === 'half_forward' || type === 'full') {
+      // Bottom stitch shadow
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.22)';
+      ctx.lineWidth = threadWidth;
+      ctx.beginPath();
+      ctx.moveTo(px + pad, py + cellSize - pad + 1);
+      ctx.lineTo(px + cellSize - pad, py + pad + 1);
+      ctx.stroke();
 
-    // Bottom diagonal (/)
-    ctx.strokeStyle = color.hex;
-    ctx.lineWidth = threadWidth;
-    ctx.beginPath();
-    ctx.moveTo(px + pad, py + cellSize - pad);
-    ctx.lineTo(px + cellSize - pad, py + pad);
-    ctx.stroke();
+      // Bottom diagonal (/)
+      ctx.strokeStyle = color.hex;
+      ctx.lineWidth = threadWidth;
+      ctx.beginPath();
+      ctx.moveTo(px + pad, py + cellSize - pad);
+      ctx.lineTo(px + cellSize - pad, py + pad);
+      ctx.stroke();
+    }
 
-    // Top stitch shadow
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.25)';
-    ctx.lineWidth = threadWidth;
-    ctx.beginPath();
-    ctx.moveTo(px + pad, py + pad + 1);
-    ctx.lineTo(px + cellSize - pad, py + cellSize - pad + 1);
-    ctx.stroke();
+    if (type === 'half_back' || type === 'full') {
+      // Top stitch shadow
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.25)';
+      ctx.lineWidth = threadWidth;
+      ctx.beginPath();
+      ctx.moveTo(px + pad, py + pad + 1);
+      ctx.lineTo(px + cellSize - pad, py + cellSize - pad + 1);
+      ctx.stroke();
 
-    // Top diagonal (\)
-    ctx.strokeStyle = color.hex;
-    ctx.lineWidth = threadWidth;
-    ctx.beginPath();
-    ctx.moveTo(px + pad, py + pad);
-    ctx.lineTo(px + cellSize - pad, py + cellSize - pad);
-    ctx.stroke();
+      // Top diagonal (\)
+      ctx.strokeStyle = color.hex;
+      ctx.lineWidth = threadWidth;
+      ctx.beginPath();
+      ctx.moveTo(px + pad, py + pad);
+      ctx.lineTo(px + cellSize - pad, py + cellSize - pad);
+      ctx.stroke();
 
-    // Thread sheen highlight
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.26)';
-    ctx.lineWidth = Math.max(0.8, threadWidth * 0.3);
-    ctx.beginPath();
-    ctx.moveTo(px + pad + 1, py + pad + 1);
-    ctx.lineTo(px + cellSize - pad - 1, py + cellSize - pad - 1);
-    ctx.stroke();
+      // Thread sheen highlight
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.26)';
+      ctx.lineWidth = Math.max(0.8, threadWidth * 0.3);
+      ctx.beginPath();
+      ctx.moveTo(px + pad + 1, py + pad + 1);
+      ctx.lineTo(px + cellSize - pad - 1, py + cellSize - pad - 1);
+      ctx.stroke();
+    }
   }
 
   return canvas;
@@ -161,7 +166,7 @@ export function renderMockupCanvas(
  */
 export function renderChartPageCanvas(
   grid: GridDimensions,
-  artboardStitches: Map<string, number>,
+  artboardStitches: Map<string, { colorId: number; type: StitchType }>,
   palette: PaletteColor[],
   chartStyle: 'color_symbols' | 'black_and_white',
   startX: number,
@@ -211,40 +216,129 @@ export function renderChartPageCanvas(
     for (let c = 0; c < cols; c++) {
       const gx = startX + c;
       const key = `${gx},${gy}`;
-      const colorId = artboardStitches.get(key);
-      if (colorId === undefined) continue;
+      const item = artboardStitches.get(key);
+      if (item === undefined) continue;
 
-      const color = palMap.get(colorId);
+      const color = palMap.get(item.colorId);
       if (!color) continue;
 
       const px = borderMargin + c * cellPx;
       const py = borderMargin + r * cellPx;
+      const type = item.type || 'full';
 
       if (chartStyle === 'color_symbols') {
-        // Light tinted color fill for contrast
-        ctx.fillStyle = color.hex;
-        ctx.fillRect(px, py, cellPx, cellPx);
+        if (type === 'half_forward') {
+          ctx.fillStyle = color.hex;
+          ctx.beginPath();
+          ctx.moveTo(px, py + cellPx);
+          ctx.lineTo(px + cellPx, py);
+          ctx.lineTo(px + cellPx, py + cellPx);
+          ctx.closePath();
+          ctx.fill();
 
-        // Symbol
-        ctx.fillStyle = color.symbolColor || '#FFFFFF';
-        ctx.font = `bold ${Math.round(cellPx * 0.62)}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(color.symbol, px + cellPx / 2, py + cellPx / 2 + 1);
+          ctx.strokeStyle = '#FFFFFF88';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(px, py + cellPx);
+          ctx.lineTo(px + cellPx, py);
+          ctx.stroke();
+
+          ctx.fillStyle = color.symbolColor || '#FFFFFF';
+          ctx.font = `bold ${Math.round(cellPx * 0.45)}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(color.symbol, px + cellPx * 0.65, py + cellPx * 0.65);
+        } else if (type === 'half_back') {
+          ctx.fillStyle = color.hex;
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(px + cellPx, py + cellPx);
+          ctx.lineTo(px, py + cellPx);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.strokeStyle = '#FFFFFF88';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(px + cellPx, py + cellPx);
+          ctx.stroke();
+
+          ctx.fillStyle = color.symbolColor || '#FFFFFF';
+          ctx.font = `bold ${Math.round(cellPx * 0.45)}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(color.symbol, px + cellPx * 0.35, py + cellPx * 0.65);
+        } else {
+          // Standard full stitch
+          ctx.fillStyle = color.hex;
+          ctx.fillRect(px, py, cellPx, cellPx);
+
+          ctx.fillStyle = color.symbolColor || '#FFFFFF';
+          ctx.font = `bold ${Math.round(cellPx * 0.62)}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(color.symbol, px + cellPx / 2, py + cellPx / 2 + 1);
+        }
       } else {
         // Black and white chart
         const lum = getColorLuminance(color.hex);
-        // Subtle background tint for very dark or very light threads to improve readability
-        if (lum < 0.20) {
-          ctx.fillStyle = '#E5E7EB';
-          ctx.fillRect(px, py, cellPx, cellPx);
-        }
+        const bg = lum < 0.20 ? '#E5E7EB' : (lum < 0.60 ? '#F3F4F6' : '#FFFFFF');
 
-        ctx.fillStyle = '#000000';
-        ctx.font = `bold ${Math.round(cellPx * 0.65)}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(color.symbol, px + cellPx / 2, py + cellPx / 2 + 1);
+        if (type === 'half_forward') {
+          ctx.fillStyle = bg;
+          ctx.beginPath();
+          ctx.moveTo(px, py + cellPx);
+          ctx.lineTo(px + cellPx, py);
+          ctx.lineTo(px + cellPx, py + cellPx);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.strokeStyle = '#64748B';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(px, py + cellPx);
+          ctx.lineTo(px + cellPx, py);
+          ctx.stroke();
+
+          ctx.fillStyle = '#000000';
+          ctx.font = `bold ${Math.round(cellPx * 0.48)}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(color.symbol, px + cellPx * 0.65, py + cellPx * 0.65);
+        } else if (type === 'half_back') {
+          ctx.fillStyle = bg;
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(px + cellPx, py + cellPx);
+          ctx.lineTo(px, py + cellPx);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.strokeStyle = '#64748B';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(px + cellPx, py + cellPx);
+          ctx.stroke();
+
+          ctx.fillStyle = '#000000';
+          ctx.font = `bold ${Math.round(cellPx * 0.48)}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(color.symbol, px + cellPx * 0.35, py + cellPx * 0.65);
+        } else {
+          if (bg !== '#FFFFFF') {
+            ctx.fillStyle = bg;
+            ctx.fillRect(px, py, cellPx, cellPx);
+          }
+
+          ctx.fillStyle = '#000000';
+          ctx.font = `bold ${Math.round(cellPx * 0.65)}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(color.symbol, px + cellPx / 2, py + cellPx / 2 + 1);
+        }
       }
     }
   }
@@ -435,7 +529,7 @@ export async function createPdfDocument(
 
   const data = getArtboardStitchData(grid, layers, palette);
   const title = options.title?.trim() || 'Cross-Stitch Pattern';
-  const author = options.author?.trim() || 'XStitcher Studio';
+  const author = options.author?.trim() || 'runStitch Studio';
 
   const inWidth = (grid.width / grid.fabricCount).toFixed(1);
   const inHeight = (grid.height / grid.fabricCount).toFixed(1);
@@ -460,7 +554,7 @@ export async function createPdfDocument(
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.setTextColor(200, 205, 235);
-    doc.text(`Designed by ${author} • Generated by XStitcher Studio`, margin, 21);
+    doc.text(`Designed by ${author} • Generated by runStitch Studio`, margin, 21);
 
     // Decorative Gold Line
     doc.setDrawColor(217, 119, 6);
@@ -594,7 +688,7 @@ export async function createPdfDocument(
     // Footer
     doc.setFontSize(7);
     doc.setTextColor(148, 163, 184);
-    doc.text('XStitcher Studio • Professional Cross-Stitch Publishing System', margin, pageHeight - 8);
+    doc.text('runStitch Studio • Professional Cross-Stitch Publishing System', margin, pageHeight - 8);
 
     isFirstPage = false;
   }
