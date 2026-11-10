@@ -11,10 +11,51 @@ export interface Point {
 }
 
 /**
+ * Returns the square block of grid cells affected by a tool of given size (1x1, 2x2, 3x3) centered on (x, y).
+ */
+export function getBrushFootprint(x: number, y: number, size: number = 1): Point[] {
+  const s = Math.max(1, Math.round(size));
+  if (s === 1) return [{ x, y }];
+  const points: Point[] = [];
+  const half = Math.floor(s / 2);
+  for (let dy = -half; dy < s - half; dy++) {
+    for (let dx = -half; dx < s - half; dx++) {
+      points.push({ x: x + dx, y: y + dy });
+    }
+  }
+  return points;
+}
+
+/**
+ * Expands a list of 1x1 path/perimeter cells by a given brush/border size (1x, 2x, 3x).
+ */
+export function expandCellsBySize(cells: Point[], size: number = 1): Point[] {
+  const s = Math.max(1, Math.round(size));
+  if (s <= 1) return cells;
+  const map = new Map<string, Point>();
+  const half = Math.floor(s / 2);
+  for (const c of cells) {
+    for (let dy = -half; dy < s - half; dy++) {
+      for (let dx = -half; dx < s - half; dx++) {
+        const nx = c.x + dx;
+        const ny = c.y + dy;
+        map.set(`${nx},${ny}`, { x: nx, y: ny });
+      }
+    }
+  }
+  return Array.from(map.values());
+}
+
+/**
  * Bresenham's line algorithm.
  * Returns an array of grid cells connecting (x0, y0) to (x1, y1).
  */
 export function getLineCells(x0: number, y0: number, x1: number, y1: number): Point[] {
+  x0 = Math.floor(x0);
+  y0 = Math.floor(y0);
+  x1 = Math.floor(x1);
+  y1 = Math.floor(y1);
+
   const cells: Point[] = [];
   const dx = Math.abs(x1 - x0);
   const dy = Math.abs(y1 - y0);
@@ -292,10 +333,12 @@ export function pointInPolygon(px: number, py: number, polygon: Point[]): boolea
 export function getLassoCells(points: Point[], gridW: number, gridH: number): Point[] {
   if (points.length === 0) return [];
   if (points.length < 3) {
-    return points.filter(p => p.x >= 0 && p.x < gridW && p.y >= 0 && p.y < gridH);
+    return points
+      .map(p => ({ x: Math.floor(p.x), y: Math.floor(p.y) }))
+      .filter(p => p.x >= 0 && p.x < gridW && p.y >= 0 && p.y < gridH);
   }
 
-  // 1. Calculate bounding box of the polygon
+  // 1. Calculate integer bounding box of the polygon
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -308,18 +351,18 @@ export function getLassoCells(points: Point[], gridW: number, gridH: number): Po
     if (pt.y > maxY) maxY = pt.y;
   }
 
-  const startX = Math.max(0, minX);
-  const endX = Math.min(gridW - 1, maxX);
-  const startY = Math.max(0, minY);
-  const endY = Math.min(gridH - 1, maxY);
+  const startX = Math.max(0, Math.floor(minX));
+  const endX = Math.min(gridW - 1, Math.floor(maxX));
+  const startY = Math.max(0, Math.floor(minY));
+  const endY = Math.min(gridH - 1, Math.floor(maxY));
 
   const selectedCells = new Map<string, Point>();
 
-  // 2. Trace the perimeter using Bresenham lines to guarantee closed outline cells
+  // 2. Trace the perimeter using integer Bresenham lines to guarantee closed outline cells
   for (let i = 0; i < points.length; i++) {
     const p1 = points[i];
     const p2 = points[(i + 1) % points.length];
-    const edgeCells = getLineCells(p1.x, p1.y, p2.x, p2.y);
+    const edgeCells = getLineCells(Math.floor(p1.x), Math.floor(p1.y), Math.floor(p2.x), Math.floor(p2.y));
     for (const ec of edgeCells) {
       if (ec.x >= 0 && ec.x < gridW && ec.y >= 0 && ec.y < gridH) {
         selectedCells.set(`${ec.x},${ec.y}`, ec);
@@ -327,7 +370,7 @@ export function getLassoCells(points: Point[], gridW: number, gridH: number): Po
     }
   }
 
-  // 3. Scan candidate grid cells within bounding box testing center (x + 0.5, y + 0.5)
+  // 3. Scan candidate grid cells within integer bounding box testing center (cx + 0.5, cy + 0.5)
   for (let cy = startY; cy <= endY; cy++) {
     for (let cx = startX; cx <= endX; cx++) {
       const key = `${cx},${cy}`;

@@ -4,6 +4,8 @@
     activeStitchType,
     brushSize,
     eraserSize,
+    shapeSize,
+    activeColor,
     wandTolerance,
     wandContiguous,
     lassoFilterMode,
@@ -34,15 +36,15 @@
     isBorderModalOpen
   } from '../stores/editorStore';
   import type { StitchType } from '../types';
+  import StitchIcon from './StitchIcon.svelte';
+  import LineToolIcon from './LineToolIcon.svelte';
   import {
     BoxSelect,
     LassoSelect,
     Wand,
-    Pencil,
     Eraser,
     PaintBucket,
     Pipette,
-    Slash,
     Square,
     Circle,
     Stamp,
@@ -92,8 +94,8 @@
         <Wand size={14} class="text-indigo-400" />
         <span>Magic Wand</span>
       {:else if $activeTool === 'pencil'}
-        <Pencil size={14} class="text-indigo-400" />
-        <span>Pencil</span>
+        <StitchIcon type={$activeStitchType} color={$activeColor?.hex} size={15} />
+        <span>Stitch</span>
       {:else if $activeTool === 'eraser'}
         <Eraser size={14} class="text-indigo-400" />
         <span>Eraser</span>
@@ -105,7 +107,7 @@
         <span>Eyedropper</span>
       {:else if $activeTool === 'line' || $activeTool === 'rectangle' || $activeTool === 'ellipse'}
         {#if $activeTool === 'line'}
-          <Slash size={14} class="text-indigo-400" />
+          <LineToolIcon size={14} />
           <span>Line</span>
         {:else if $activeTool === 'rectangle'}
           <Square size={14} class="text-indigo-400" />
@@ -325,11 +327,11 @@
           {#each stitchTypes as st}
             <button
               type="button"
-              class="px-2 py-0.5 rounded text-[11px] flex items-center space-x-1 transition-colors {$activeStitchType === st.id ? 'bg-indigo-600 text-white font-medium' : 'text-gray-400 hover:text-gray-200'}"
+              class="px-2 py-0.5 rounded text-[11px] flex items-center space-x-1.5 transition-colors {$activeStitchType === st.id ? 'bg-indigo-600 text-white font-medium' : 'text-gray-400 hover:text-gray-200'}"
               on:click={() => activeStitchType.set(st.id)}
               title={st.title}
             >
-              <span class="font-bold text-xs">{st.symbol}</span>
+              <StitchIcon type={st.id} color={$activeColor?.hex} size={14} />
               <span>{st.label}</span>
             </button>
           {/each}
@@ -338,7 +340,7 @@
 
       <!-- Brush Size -->
       <div class="flex items-center space-x-1.5 pl-2 border-l border-[#2d2d3c]">
-        <span class="text-[11px] text-gray-400">Brush Size:</span>
+        <span class="text-[11px] text-gray-400">Size:</span>
         <div class="flex items-center space-x-1 bg-[#121218] p-0.5 rounded border border-[#2b2b3a]">
           {#each [1, 2, 3] as s}
             <button
@@ -380,11 +382,11 @@
           {#each stitchTypes as st}
             <button
               type="button"
-              class="px-2 py-0.5 rounded text-[11px] flex items-center space-x-1 transition-colors {$activeStitchType === st.id ? 'bg-indigo-600 text-white font-medium' : 'text-gray-400 hover:text-gray-200'}"
+              class="px-2 py-0.5 rounded text-[11px] flex items-center space-x-1.5 transition-colors {$activeStitchType === st.id ? 'bg-indigo-600 text-white font-medium' : 'text-gray-400 hover:text-gray-200'}"
               on:click={() => activeStitchType.set(st.id)}
               title="Fill with {st.title}"
             >
-              <span class="font-bold text-xs">{st.symbol}</span>
+              <StitchIcon type={st.id} color={$activeColor?.hex} size={14} />
               <span>{st.label}</span>
             </button>
           {/each}
@@ -421,7 +423,7 @@
             on:click={() => setTool('line')}
             title="Line Tool (L)"
           >
-            <Slash size={11} />
+            <LineToolIcon size={12} />
             <span>Line</span>
           </button>
         </div>
@@ -452,6 +454,25 @@
         </div>
       {/if}
 
+      <!-- Shape Border / Line Thickness (Independent of Pencil & Eraser) -->
+      {#if $activeTool === 'line' || $shapeFillMode === 'outline'}
+        <div class="flex items-center space-x-1.5 pl-2 border-l border-[#2d2d3c]">
+          <span class="text-[11px] text-gray-400">{$activeTool === 'line' ? 'Size:' : 'Border:'}</span>
+          <div class="flex items-center space-x-1 bg-[#121218] p-0.5 rounded border border-[#2b2b3a]">
+            {#each [1, 2, 3] as s}
+              <button
+                type="button"
+                class="w-6 h-5 rounded text-[11px] flex items-center justify-center transition-colors {$shapeSize === s ? 'bg-indigo-600 text-white font-medium' : 'text-gray-400 hover:text-gray-200'}"
+                on:click={() => shapeSize.set(s)}
+                title="Shape thickness {s}×{s}"
+              >
+                {s}×
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
       <!-- Shape Stitch Type -->
       <div class="flex items-center space-x-1.5 pl-2 border-l border-[#2d2d3c]">
         <span class="text-[11px] text-gray-400">Stitch:</span>
@@ -463,7 +484,7 @@
               on:click={() => activeStitchType.set(st.id)}
               title="Draw shape with {st.title}"
             >
-              <span class="font-bold text-xs">{st.symbol}</span>
+              <StitchIcon type={st.id} color={$activeColor?.hex} size={14} />
             </button>
           {/each}
         </div>

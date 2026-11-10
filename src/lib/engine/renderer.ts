@@ -1,5 +1,6 @@
-import type { Layer, PaletteColor, ViewMode, Viewport, GridDimensions, SelectionBox, FloatingSelection, ActiveTool, MotifStamp, StitchType } from '../types';
+import type { Layer, PaletteColor, ViewMode, Viewport, GridDimensions, SelectionBox, FloatingSelection, ActiveTool, MotifStamp, StitchType, ShapeFillMode } from '../types';
 import { getColorLuminance, DMC_CATALOG } from '../data/dmcPalette';
+import { getBrushFootprint } from './geometry';
 
 const GLOBAL_DMC_MAP = new Map(DMC_CATALOG.map(d => [d.code, d.hex]));
 
@@ -516,6 +517,56 @@ export function renderStitches(
   ctx.restore();
 }
 
+function drawPreviewStitchShape(
+  ctx: CanvasRenderingContext2D,
+  px: number,
+  py: number,
+  zoom: number,
+  stitchType: StitchType,
+  colorHex: string,
+  alpha: number
+) {
+  ctx.save();
+  ctx.fillStyle = colorHex;
+  ctx.globalAlpha = alpha;
+
+  if (stitchType === 'half_forward') {
+    ctx.beginPath();
+    ctx.moveTo(px, py + zoom);
+    ctx.lineTo(px + zoom, py);
+    ctx.lineTo(px + zoom, py + zoom);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.globalAlpha = Math.min(1, alpha + 0.25);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.lineWidth = Math.max(1, zoom * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(px + 1, py + zoom - 1);
+    ctx.lineTo(px + zoom - 1, py + 1);
+    ctx.stroke();
+  } else if (stitchType === 'half_back') {
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(px + zoom, py + zoom);
+    ctx.lineTo(px, py + zoom);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.globalAlpha = Math.min(1, alpha + 0.25);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.lineWidth = Math.max(1, zoom * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(px + 1, py + 1);
+    ctx.lineTo(px + zoom - 1, py + zoom - 1);
+    ctx.stroke();
+  } else {
+    ctx.fillRect(px, py, zoom, zoom);
+  }
+
+  ctx.restore();
+}
+
 // Render cursor hover cell, selection marquee, and floating selection overlays
 export function renderOverlay(
   ctx: CanvasRenderingContext2D,
@@ -533,7 +584,12 @@ export function renderOverlay(
   shapePreviewCells: { x: number; y: number }[] | null = null,
   activeStamp: MotifStamp | null = null,
   activeImageLayer: Layer | null = null,
-  lassoPoints: { x: number; y: number }[] | null = null
+  lassoPoints: { x: number; y: number }[] | null = null,
+  activeStitchType: StitchType = 'full',
+  brushSize: number = 1,
+  eraserSize: number = 1,
+  shapeSize: number = 1,
+  shapeFillMode: ShapeFillMode = 'outline'
 ) {
   ctx.save();
   ctx.clearRect(0, 0, width, height);
@@ -741,22 +797,48 @@ export function renderOverlay(
 
   // 1.5. Render In-Progress Lasso Freehand Path
   if (lassoPoints && lassoPoints.length > 1) {
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([4, 4]);
-    ctx.lineDashOffset = -dashOffset;
-    ctx.strokeStyle = '#38BDF8';
+    ctx.save();
     ctx.beginPath();
-    const firstX = Math.floor(panX + lassoPoints[0].x * zoom);
-    const firstY = Math.floor(panY + lassoPoints[0].y * zoom);
+    const firstX = panX + lassoPoints[0].x * zoom;
+    const firstY = panY + lassoPoints[0].y * zoom;
     ctx.moveTo(firstX, firstY);
 
     for (let i = 1; i < lassoPoints.length; i++) {
-      const px = Math.floor(panX + lassoPoints[i].x * zoom);
-      const py = Math.floor(panY + lassoPoints[i].y * zoom);
+      const px = panX + lassoPoints[i].x * zoom;
+      const py = panY + lassoPoints[i].y * zoom;
       ctx.lineTo(px, py);
     }
+
+    // Subtle shaded interior preview of the lasso loop
+    if (lassoPoints.length >= 3) {
+      ctx.save();
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.16)';
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // High-contrast double stroke (dark base + cyan marching ants)
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(15, 23, 42, 0.85)';
     ctx.stroke();
-    ctx.setLineDash([]);
+
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 4]);
+    ctx.lineDashOffset = -dashOffset;
+    ctx.strokeStyle = '#38BDF8';
+    ctx.stroke();
+
+    // Faint closing chord from current cursor back to origin
+    const lastPt = lassoPoints[lassoPoints.length - 1];
+    ctx.beginPath();
+    ctx.moveTo(panX + lastPt.x * zoom, panY + lastPt.y * zoom);
+    ctx.lineTo(firstX, firstY);
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
+    ctx.setLineDash([2, 4]);
+    ctx.stroke();
+
+    ctx.restore();
   }
 
   // 2. Render Floating Selection (Stitches preview & positioning border)
@@ -829,9 +911,7 @@ export function renderOverlay(
         const cpx = Math.floor(panX + cell.x * zoom);
         const cpy = Math.floor(panY + cell.y * zoom);
 
-        ctx.fillStyle = activeColorHex;
-        ctx.globalAlpha = 0.8;
-        ctx.fillRect(cpx, cpy, zoom, zoom);
+        drawPreviewStitchShape(ctx, cpx, cpy, zoom, activeStitchType, activeColorHex, 0.78);
 
         ctx.globalAlpha = 1.0;
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
@@ -915,25 +995,77 @@ export function renderOverlay(
     ctx.setLineDash([]);
   }
 
-  // 5. Render standard single-cell hover cursor
+  // 5. Render tool-size-aware & stitch-shape-aware hover cursor preview
   const isDraggingShape = shapePreviewCells && shapePreviewCells.length > 0;
   const isImageActive = activeImageLayer && (activeImageLayer.type === 'image' || activeImageLayer.type === 'text');
-  if (hoverCoord && !floatingSelection && activeTool !== 'select' && activeTool !== 'stamp' && !isDraggingShape && !isImageActive) {
+  if (hoverCoord && !floatingSelection && activeTool !== 'select' && activeTool !== 'lasso' && activeTool !== 'stamp' && !isDraggingShape && !isImageActive) {
     const { x, y } = hoverCoord;
-    if (x >= 0 && x < grid.width && y >= 0 && y < grid.height) {
-      const px = panX + x * zoom;
-      const py = panY + y * zoom;
+    const isShapeTool = activeTool === 'line' || activeTool === 'rectangle' || activeTool === 'ellipse';
+    const isStitchPreviewTool = activeTool === 'pencil' || activeTool === 'bucket' || isShapeTool;
 
-      // Semi-transparent ghost preview of current color
-      ctx.fillStyle = activeColorHex;
-      ctx.globalAlpha = 0.45;
-      ctx.fillRect(px, py, zoom, zoom);
+    let effectiveSize = 1;
+    if (activeTool === 'pencil') {
+      effectiveSize = brushSize;
+    } else if (activeTool === 'eraser') {
+      effectiveSize = eraserSize;
+    } else if (isShapeTool) {
+      effectiveSize = (activeTool === 'line' || shapeFillMode === 'outline') ? shapeSize : 1;
+    }
 
-      // High-visibility focus ring around hover cell
+    const footprint = getBrushFootprint(x, y, effectiveSize);
+    const validCells = footprint.filter(pt => pt.x >= -60 && pt.x < grid.width + 60 && pt.y >= -60 && pt.y < grid.height + 60);
+
+    if (validCells.length > 0) {
+      let minCellX = Infinity;
+      let minCellY = Infinity;
+      let maxCellX = -Infinity;
+      let maxCellY = -Infinity;
+
+      for (const pt of validCells) {
+        if (pt.x < minCellX) minCellX = pt.x;
+        if (pt.y < minCellY) minCellY = pt.y;
+        if (pt.x > maxCellX) maxCellX = pt.x;
+        if (pt.y > maxCellY) maxCellY = pt.y;
+
+        const cpx = panX + pt.x * zoom;
+        const cpy = panY + pt.y * zoom;
+
+        if (activeTool === 'eraser') {
+          ctx.fillStyle = 'rgba(239, 68, 68, 0.28)';
+          ctx.globalAlpha = 1.0;
+          ctx.fillRect(cpx, cpy, zoom, zoom);
+
+          if (effectiveSize > 1) {
+            ctx.strokeStyle = 'rgba(248, 113, 113, 0.45)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(cpx + 0.5, cpy + 0.5, zoom - 1, zoom - 1);
+          }
+        } else if (isStitchPreviewTool) {
+          drawPreviewStitchShape(ctx, cpx, cpy, zoom, activeStitchType, activeColorHex, 0.52);
+
+          if (effectiveSize > 1) {
+            ctx.globalAlpha = 1.0;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(cpx + 0.5, cpy + 0.5, zoom - 1, zoom - 1);
+          }
+        } else {
+          ctx.fillStyle = activeColorHex;
+          ctx.globalAlpha = 0.25;
+          ctx.fillRect(cpx, cpy, zoom, zoom);
+        }
+      }
+
+      // Outer focus ring around the entire affected footprint block
+      const boxPx = panX + minCellX * zoom;
+      const boxPy = panY + minCellY * zoom;
+      const boxPw = (maxCellX - minCellX + 1) * zoom;
+      const boxPh = (maxCellY - minCellY + 1) * zoom;
+
       ctx.globalAlpha = 1.0;
-      ctx.strokeStyle = '#6366F1';
+      ctx.strokeStyle = activeTool === 'eraser' ? '#EF4444' : '#6366F1';
       ctx.lineWidth = 2;
-      ctx.strokeRect(px + 0.5, py + 0.5, zoom - 1, zoom - 1);
+      ctx.strokeRect(boxPx + 0.5, boxPy + 0.5, boxPw - 1, boxPh - 1);
     }
   }
 

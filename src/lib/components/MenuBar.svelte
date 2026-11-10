@@ -58,9 +58,20 @@
   } from '../stores/editorStore';
   import { parseOxsXml } from '../engine/oxsExport';
   import { SAMPLE_IMAGES } from '../data/sampleImages';
+  import LineToolIcon from './LineToolIcon.svelte';
+  import {
+    isProjectLibraryModalOpen,
+    savedProjectsList,
+    currentProjectId,
+    openSavedProject,
+    saveCurrentProjectToDB,
+    duplicateCurrentProject
+  } from '../stores/projectStorage';
   import {
     FileText,
     FolderOpen,
+    FolderHeart,
+    Download,
     Save,
     Printer,
     Globe,
@@ -209,16 +220,70 @@
       File
     </button>
     {#if openMenu === 'file'}
-      <div class="absolute left-0 top-full mt-1 w-60 bg-[#1f1f28] border border-gray-700 rounded-lg shadow-2xl py-1 z-50 text-xs text-gray-200">
+      <div class="absolute left-0 top-full mt-1 w-64 bg-[#1f1f28] border border-gray-700 rounded-lg shadow-2xl py-1 z-50 text-xs text-gray-200">
         <button
           class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-indigo-600 hover:text-white transition-colors"
           on:click={() => { closeMenu(); isNewProjectModalOpen.set(true); }}
         >
           <div class="flex items-center space-x-2">
             <FileText size={14} />
-            <span>New Canvas...</span>
+            <span>New Project...</span>
           </div>
           <span class="text-[10px] text-gray-400">Cmd+N</span>
+        </button>
+
+        <button
+          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-indigo-600 hover:text-white transition-colors"
+          on:click={() => { closeMenu(); isProjectLibraryModalOpen.set(true); }}
+        >
+          <div class="flex items-center space-x-2">
+            <FolderHeart size={14} class="text-indigo-400" />
+            <span>My Projects ({$savedProjectsList.length})...</span>
+          </div>
+          <span class="text-[10px] text-gray-400">Cmd+O</span>
+        </button>
+
+        {#if $savedProjectsList.length > 1}
+          <div class="px-3 pt-1.5 pb-0.5 text-[10px] uppercase font-bold text-gray-500 tracking-wider">
+            Recent in Browser
+          </div>
+          {#each $savedProjectsList.slice(0, 4) as recent (recent.id)}
+            <button
+              class="w-full px-3 py-1 flex items-center justify-between hover:bg-indigo-600 hover:text-white transition-colors text-left"
+              on:click={() => { closeMenu(); openSavedProject(recent.id); }}
+            >
+              <div class="flex items-center space-x-2 truncate pr-2">
+                <span
+                  class="w-2 h-2 rounded-full shrink-0 {recent.id === $currentProjectId ? 'bg-emerald-400' : 'bg-gray-600'}"
+                ></span>
+                <span class="truncate">{recent.name}</span>
+              </div>
+              <span class="text-[10px] text-gray-400 font-mono shrink-0">{recent.grid.width}×{recent.grid.height}</span>
+            </button>
+          {/each}
+        {/if}
+
+        <button
+          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-indigo-600 hover:text-white transition-colors"
+          on:click={() => { closeMenu(); duplicateCurrentProject(); }}
+        >
+          <div class="flex items-center space-x-2">
+            <Copy size={14} />
+            <span>Make a Copy</span>
+          </div>
+        </button>
+
+        <div class="my-1 border-t border-gray-700"></div>
+
+        <button
+          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-indigo-600 hover:text-white transition-colors"
+          on:click={() => { closeMenu(); saveCurrentProjectToDB(); }}
+        >
+          <div class="flex items-center space-x-2">
+            <Save size={14} class="text-emerald-400" />
+            <span>Save Now (Browser Storage)</span>
+          </div>
+          <span class="text-[10px] text-gray-400">Cmd+S</span>
         </button>
 
         <button
@@ -227,9 +292,19 @@
         >
           <div class="flex items-center space-x-2">
             <FolderOpen size={14} />
-            <span>Open (.xstitch, .oxs)...</span>
+            <span>Open File from Disk (.xstitch, .oxs)...</span>
           </div>
-          <span class="text-[10px] text-gray-400">Cmd+O</span>
+        </button>
+
+        <button
+          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-indigo-600 hover:text-white transition-colors"
+          on:click={() => handleExport('xstitch')}
+        >
+          <div class="flex items-center space-x-2">
+            <Download size={14} class="text-emerald-400" />
+            <span>Download Project File (.xstitch)...</span>
+          </div>
+          <span class="text-[10px] text-gray-400">Cmd+Shift+S</span>
         </button>
 
         <div class="my-1 border-t border-gray-700"></div>
@@ -253,17 +328,6 @@
             <Sparkles size={14} class="text-cyan-400" />
             <span>Export Open X-Stitch (.oxs)...</span>
           </div>
-        </button>
-
-        <button
-          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-indigo-600 hover:text-white transition-colors"
-          on:click={() => handleExport('xstitch')}
-        >
-          <div class="flex items-center space-x-2">
-            <Save size={14} class="text-emerald-400" />
-            <span>Save Project (.xstitch)</span>
-          </div>
-          <span class="text-[10px] text-gray-400">Cmd+S</span>
         </button>
 
         <div class="my-1 border-t border-gray-700"></div>
@@ -623,7 +687,7 @@
           on:click={() => { closeMenu(); activeTool.set('line'); }}
         >
           <div class="flex items-center space-x-2">
-            <Slash size={14} />
+            <LineToolIcon size={14} />
             <span>Line Tool</span>
           </div>
           <span class="text-[10px] text-gray-400">L</span>

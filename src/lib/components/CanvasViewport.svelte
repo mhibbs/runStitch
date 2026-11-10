@@ -64,7 +64,9 @@
     lassoFilterMode,
     selectionCombineMode,
     activeStitchType,
-    brushSize
+    brushSize,
+    eraserSize,
+    shapeSize
   } from '../stores/editorStore';
   import {
     renderBackground,
@@ -78,6 +80,7 @@
     getLineCells,
     getRectangleCells,
     getEllipseCells,
+    expandCellsBySize,
     constrainCoordinates,
     getLassoCells,
     floodSelectStitches,
@@ -243,7 +246,12 @@
       shapePreviewCells,
       $activeStamp,
       $activeLayer,
-      lassoPoints
+      lassoPoints,
+      $activeStitchType,
+      $brushSize,
+      $eraserSize,
+      $shapeSize,
+      $shapeFillMode
     );
   }
 
@@ -254,13 +262,17 @@
 
     const constrained = constrainCoordinates(tool, shapeOrigin.x, shapeOrigin.y, shapeCurrent.x, shapeCurrent.y, isShift);
 
+    let baseCells: Point[] = [];
     if (tool === 'line') {
-      shapePreviewCells = getLineCells(shapeOrigin.x, shapeOrigin.y, constrained.x, constrained.y);
+      baseCells = getLineCells(shapeOrigin.x, shapeOrigin.y, constrained.x, constrained.y);
     } else if (tool === 'rectangle') {
-      shapePreviewCells = getRectangleCells(shapeOrigin.x, shapeOrigin.y, constrained.x, constrained.y, $shapeFillMode);
+      baseCells = getRectangleCells(shapeOrigin.x, shapeOrigin.y, constrained.x, constrained.y, $shapeFillMode);
     } else if (tool === 'ellipse') {
-      shapePreviewCells = getEllipseCells(shapeOrigin.x, shapeOrigin.y, constrained.x, constrained.y, $shapeFillMode);
+      baseCells = getEllipseCells(shapeOrigin.x, shapeOrigin.y, constrained.x, constrained.y, $shapeFillMode);
     }
+
+    const effectiveSize = (tool === 'line' || $shapeFillMode === 'outline') ? $shapeSize : 1;
+    shapePreviewCells = expandCellsBySize(baseCells, effectiveSize);
     redrawOverlay();
   }
 
@@ -273,7 +285,7 @@
     redrawStitches();
   }
 
-  $: if (overlayCtx && ($viewport || $grid || $hoverCoord || $activeColor || $selection || $floatingSelection || $activeTool || $activeStamp || $shapeFillMode || $activeLayer)) {
+  $: if (overlayCtx && ($viewport || $grid || $hoverCoord || $activeColor || $selection || $floatingSelection || $activeTool || $activeStamp || $shapeFillMode || $activeLayer || $brushSize || $eraserSize || $shapeSize || $activeStitchType)) {
     redrawOverlay();
   }
 
@@ -285,6 +297,17 @@
     const gridX = Math.floor((clientX - $viewport.panX) / $viewport.zoom);
     const gridY = Math.floor((clientY - $viewport.panY) / $viewport.zoom);
     return { x: gridX, y: gridY };
+  }
+
+  function screenToPreciseGrid(screenX: number, screenY: number): { x: number; y: number } {
+    const rect = containerEl.getBoundingClientRect();
+    const clientX = screenX - rect.left;
+    const clientY = screenY - rect.top;
+
+    return {
+      x: (clientX - $viewport.panX) / $viewport.zoom,
+      y: (clientY - $viewport.panY) / $viewport.zoom
+    };
   }
 
   function handlePointerDown(e: PointerEvent) {
@@ -392,12 +415,15 @@
       }
     }
 
-    // Selection Tool in-place drag (lift & move selection content)
-    if ($activeTool === 'select' && $selection && isCellSelected($selection, x, y) && !e.shiftKey && !e.altKey) {
+    // Selection Tool in-place drag (lift & move selection content for Marquee, Lasso, and Magic Wand)
+    const isSelectionTool = $activeTool === 'select' || $activeTool === 'lasso' || $activeTool === 'wand';
+    const isCombineModify = e.shiftKey || e.altKey || $selectionCombineMode === 'add' || $selectionCombineMode === 'subtract';
+    if (isSelectionTool && $selection && isCellSelected($selection, x, y) && !isCombineModify) {
       liftSelection(false);
-      if ($floatingSelection) {
+      const floatSel = get(floatingSelection);
+      if (floatSel) {
         isDraggingFloating = true;
-        dragFloatingOffset = { dx: x - $floatingSelection.x, dy: y - $floatingSelection.y };
+        dragFloatingOffset = { dx: x - floatSel.x, dy: y - floatSel.y };
       }
       return;
     }
@@ -427,7 +453,6 @@
     }
 
     // Clicking off an active selection deselects (unless holding Shift/Alt or combine mode is add/sub)
-    const isCombineModify = e.shiftKey || e.altKey || $selectionCombineMode === 'add' || $selectionCombineMode === 'subtract';
     if ($selection && !isCombineModify && !isCellSelected($selection, x, y)) {
       clearSelection();
     }
@@ -462,9 +487,8 @@
     // Freehand Lasso Selection Tool logic
     if ($activeTool === 'lasso') {
       isDrawingLasso = true;
-      const preciseX = (e.clientX - $viewport.panX) / $viewport.zoom;
-      const preciseY = (e.clientY - $viewport.panY) / $viewport.zoom;
-      lassoPoints = [{ x: preciseX, y: preciseY }];
+      const pt = screenToPreciseGrid(e.clientX, e.clientY);
+      lassoPoints = [pt];
       redrawOverlay();
       return;
     }
@@ -638,10 +662,25 @@
       return;
     }
 
-    // Dynamic cursor hover feedback for image/text handles or invalid tools
+    // Update hover coordinates (inside Artboard or on Pasteboard margin)
+    const { x, y } = screenToGrid(e.clientX, e.clientY);
+    if (x >= -60 && x < $grid.width + 60 && y >= -60 && y < $grid.height + 60) {
+      hoverCoord.set({ x, y });
+    } else {
+      hoverCoord.set(null);
+    }
+
+    // Dynamic cursor hover feedback for image/text handles, active selections, or invalid tools
     const isStitchDrawingTool = ['pencil', 'eraser', 'bucket', 'line', 'rectangle', 'ellipse'].includes($activeTool);
+    const isSelectionTool = $activeTool === 'select' || $activeTool === 'lasso' || $activeTool === 'wand';
+    const isCombineModify = e.shiftKey || e.altKey || $selectionCombineMode === 'add' || $selectionCombineMode === 'subtract';
+    const isOverFloating = !!$floatingSelection && x >= $floatingSelection.x && x < $floatingSelection.x + $floatingSelection.width && y >= $floatingSelection.y && y < $floatingSelection.y + $floatingSelection.height;
+    const isOverMovableSelection = isSelectionTool && !!$selection && isCellSelected($selection, x, y) && !isCombineModify;
+
     if (isStitchDrawingTool && $activeLayer && ($activeLayer.type === 'image' || $activeLayer.type === 'text')) {
       dynamicCursor = 'not-allowed';
+    } else if (isOverFloating || isOverMovableSelection) {
+      dynamicCursor = 'move';
     } else if (!isTransformingImage && $activeLayer && ($activeLayer.type === 'image' || $activeLayer.type === 'text') && $activeLayer.image && $activeLayer.visible) {
       const rect = containerEl.getBoundingClientRect();
       const clientX = e.clientX - rect.left;
@@ -665,14 +704,6 @@
       dynamicCursor = '';
     }
 
-    // Update hover coordinates (inside Artboard or on Pasteboard margin)
-    const { x, y } = screenToGrid(e.clientX, e.clientY);
-    if (x >= -60 && x < $grid.width + 60 && y >= -60 && y < $grid.height + 60) {
-      hoverCoord.set({ x, y });
-    } else {
-      hoverCoord.set(null);
-    }
-
     // Moving stitch layer with Move Tool (non-destructive during drag: all original stitches shifted relative to start)
     if (isMovingStitchLayer && $activeLayer) {
       const totalDx = x - moveStitchStartGrid.x;
@@ -689,8 +720,7 @@
 
     // Drawing freehand lasso path with sub-grid precision
     if (isDrawingLasso && lassoPoints) {
-      const preciseX = (e.clientX - $viewport.panX) / $viewport.zoom;
-      const preciseY = (e.clientY - $viewport.panY) / $viewport.zoom;
+      const { x: preciseX, y: preciseY } = screenToPreciseGrid(e.clientX, e.clientY);
       const lastPt = lassoPoints[lassoPoints.length - 1];
       if (Math.hypot(preciseX - lastPt.x, preciseY - lastPt.y) > 0.15) {
         lassoPoints = [...lassoPoints, { x: preciseX, y: preciseY }];
@@ -827,6 +857,8 @@
           } else {
             setSelection(createSelectionFromCells(cellSet));
           }
+        } else if (!e.shiftKey && !e.altKey && $selectionCombineMode === 'replace') {
+          clearSelection();
         }
         isDrawingLasso = false;
         lassoPoints = null;
@@ -838,7 +870,7 @@
         beginStroke(toolLabel);
         for (const cell of shapePreviewCells) {
           if (cell.x >= 0 && cell.x < $grid.width && cell.y >= 0 && cell.y < $grid.height) {
-            setStitchAt(cell.x, cell.y, $selectedColorId, $activeStitchType);
+            setStitchAt(cell.x, cell.y, $selectedColorId, $activeStitchType, 1);
           }
         }
         commitStroke(toolLabel);

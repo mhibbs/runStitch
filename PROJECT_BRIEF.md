@@ -286,6 +286,21 @@ To ensure instant $O(1)$ lookups, low memory usage, and zero GC stutter during c
     * **User-Configurable PDF Options**: Selectable page margins (*Minimal 6mm*, *Narrow 10mm*, *Standard 14mm*), chart grid density (*Compact 2.8mm*, *Standard 3.4mm*, *Large Print 4.5mm*), header/footer & overview map toggle, and customizable skein yield (default 2,000 stitches).
     * **Direct Printing**: Added "Print Directly" button triggering native browser print dialog via an automated invisible PDF iframe.
 
+* **Milestone 8: Local Browser Persistence (IndexedDB), Stitch Iconography & Tool Size Precision** `[COMPLETED]`
+  * **IndexedDB Auto-Save & "My Projects" Browser Library (`projectStorage.ts`, `ProjectLibraryModal.svelte`)**:
+    * **Debounced Reactive Auto-Save**: Subscribes to `projectName`, `grid`, `fabricColor`, `palette`, and `layers` (600ms debounce) to persist active sessions automatically into `IndexedDB` (`runstitch_studio_db`) and restore them seamlessly on reload.
+    * **Live Artboard Thumbnail Generator**: Generates offscreen PNG thumbnails of the artboard (fabric background, grid lines, reference images, and full/half stitches) for visual project browsing.
+    * **Visual Project Library Modal (`Cmd+O`)**: Card gallery with search filtering, sorting (`Last Modified`, `Name`, `Stitch Count`), one-click switching, inline renaming, project duplication (`Make a Copy`), direct `.xstitch` backup download, and two-step inline deletion.
+    * **Smart Blank-Draft Cleanup**: Starting a new project or importing a file automatically creates a fresh library entry while cleaning up untouched 0-stitch `"Untitled Pattern"` drafts.
+    * **Studio Header & File Menu Integration**: Live `Saving…` / `✓ Saved` status badge next to project title, quick `My Projects` button with count badge, and inline `Recent in Browser` switcher in the File menu.
+  * **Custom Stitch & Line Iconography (`StitchIcon.svelte`, `LineToolIcon.svelte`)**:
+    * **Mockup-Style Outlined Stitch Icons**: Renders plump, double-outlined overlapping thread strands (`full` X, `half_forward` `/`, `half_back` `\`) tinted with the active thread color inside a subtle Aida cell box with 4 corner pinholes.
+    * **Geometric Line Segment Icon**: Renders a thin line segment connecting two endpoint vertex nodes (`o—o`) so the Line tool is unmistakably distinct from a `/` half-stitch.
+  * **Independent Tool Sizes, Stitch-Shape Previews & Flood Fill Precision**:
+    * **Independent Tool Sizes**: Separated `brushSize` (Stitch tool), `eraserSize` (Eraser), and `shapeSize` (Line & Outline Shape thickness `1×`, `2×`, `3×`).
+    * **Exact Footprint & Stitch-Shape Canvas Preview**: Hover and shape drag previews render the exact `1×1`, `2×2`, or `3×3` affected cell footprint along with the active stitch geometry (`full` square, `half_forward` `/` triangle, `half_back` `\` triangle) or red eraser highlight.
+    * **Flood Fill Half-Stitch Preservation**: `floodFill` strictly fills 1×1 matched cells (ignoring `brushSize`), matches both `colorId` and stitch `type`, and batches updates into a single store commit.
+
 ---
 
 ## 6. Codebase Architecture & File Structure
@@ -299,10 +314,11 @@ src/
 │   ├── types/
 │   │   └── index.ts             # Core interfaces (Stitch, Layer, TextLayerData, ReferenceImage, etc.)
 │   ├── stores/
-│   │   └── editorStore.ts       # Central Svelte stores (grid, layers, palette, typography, image transforms)
+│   │   ├── editorStore.ts       # Central Svelte stores (grid, layers, palette, typography, image transforms)
+│   │   └── projectStorage.ts    # IndexedDB auto-save engine, thumbnail generator & project library manager
 │   ├── engine/
 │   │   ├── renderer.ts          # 3-canvas rendering engine, sprite caching, image/text layer rendering
-│   │   ├── geometry.ts          # Bresenham line, rectangle, midpoint ellipse, aspect constraints
+│   │   ├── geometry.ts          # Bresenham line, rectangle, midpoint ellipse, brush footprint expansion
 │   │   ├── borderGenerator.ts   # Perimeter and runner border repetition generator
 │   │   └── digitizer.ts         # CIE Lab matching, Median Cut palette, Atkinson/Floyd-Steinberg dithering
 │   ├── data/
@@ -312,9 +328,13 @@ src/
 │   │   ├── motifLibrary.ts      # Curated flourishes, accents, borders, custom stamp persistence
 │   │   └── sampleImages.ts      # Registry of bundled stock photos (Cool Cat, Retro Coffee)
 │   └── components/
-│       ├── Header.svelte        # Top navigation, project dimensions pill, quick actions
+│       ├── Header.svelte        # Top navigation, autosave status badge, My Projects button, quick actions
 │       ├── MenuBar.svelte       # Traditional Desktop menus (File, Edit, Select, Design, View, Help)
 │       ├── Toolbar.svelte       # Drawing tools, Selection tools (S, W, Q), Shape tools (L, R, O), Typography (T)
+│       ├── ToolOptionsBar.svelte# Contextual options bar (stitch types, brush/eraser/shape sizes, tolerances)
+│       ├── StitchIcon.svelte    # Custom SVG stitch icon (full X, half /, half \) with active thread color
+│       ├── LineToolIcon.svelte  # Geometric line segment icon with endpoint nodes
+│       ├── ProjectLibraryModal.svelte # Visual browser project library modal (IndexedDB gallery)
 │       ├── CanvasViewport.svelte# Multi-canvas interactive viewport, image transforms, floating controls, stable HUD
 │       ├── PaletteDock.svelte   # Active swatches, color picker, brand switcher, color swapper
 │       ├── LayerManager.svelte  # Layer list, image/text badges, +Image / +Text, digitize buttons, reordering

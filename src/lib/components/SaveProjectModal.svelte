@@ -16,12 +16,19 @@
   import { generatePrintReadyPdf, printPdfDirectly, getArtboardStitchData } from '../engine/pdfExport';
   import { exportToOxs, downloadOxsFile, parseOxsXml } from '../engine/oxsExport';
   import {
+    isProjectLibraryModalOpen,
+    saveCurrentProjectToDB,
+    duplicateCurrentProject
+  } from '../stores/projectStorage';
+  import {
     FileText,
     Download,
     Save,
     X,
     Check,
     FolderOpen,
+    FolderHeart,
+    Copy,
     Sparkles,
     Printer,
     Layers,
@@ -538,9 +545,44 @@
         <!-- ============================================== -->
         {:else if activeTab === 'xstitch'}
           <div class="space-y-4">
+            <!-- Browser Library Callout -->
+            <div class="bg-indigo-950/35 border border-indigo-700/40 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3">
+              <div class="space-y-0.5">
+                <div class="font-bold text-indigo-300 flex items-center space-x-1.5 text-xs">
+                  <FolderHeart size={14} />
+                  <span>Auto-Saved in Browser Storage</span>
+                </div>
+                <p class="text-[11px] text-indigo-200/80">
+                  Your pattern is automatically saved in <strong>My Projects</strong> as you draw. Download a <code class="text-white">.xstitch</code> file below for external backup or sharing.
+                </p>
+              </div>
+              <div class="flex items-center space-x-2">
+                <button
+                  type="button"
+                  class="px-2.5 py-1.5 rounded-lg bg-[#242438] hover:bg-indigo-600 text-indigo-200 hover:text-white border border-indigo-600/40 text-[11px] font-medium flex items-center space-x-1 transition-colors cursor-pointer"
+                  on:click={() => { duplicateCurrentProject(); }}
+                  title="Save a duplicate snapshot in browser library"
+                >
+                  <Copy size={12} />
+                  <span>Make a Copy</span>
+                </button>
+                <button
+                  type="button"
+                  class="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-medium flex items-center space-x-1 transition-colors cursor-pointer"
+                  on:click={() => {
+                    isSaveModalOpen.set(false);
+                    isProjectLibraryModalOpen.set(true);
+                  }}
+                >
+                  <FolderHeart size={12} />
+                  <span>Open My Projects</span>
+                </button>
+              </div>
+            </div>
+
             <div>
               <label for="save-filename-input" class="block text-gray-300 font-medium mb-1.5">
-                Project File Name
+                Download Backup File Name (.xstitch)
               </label>
               <input
                 id="save-filename-input"

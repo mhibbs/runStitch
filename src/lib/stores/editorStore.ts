@@ -162,17 +162,23 @@ export function commitStroke(desc = 'Draw Stitches') {
   currentStrokeDelta = null;
 }
 
-export function setStitchAt(x: number, y: number, colorId: number, stitchType?: StitchType) {
+export function setStitchAt(
+  x: number,
+  y: number,
+  colorId: number,
+  stitchType?: StitchType,
+  customSize?: number
+) {
   const currentLayers = get(layers);
   const activeId = get(activeLayerId);
   const targetLayer = currentLayers.find(l => l.id === activeId);
   if (!targetLayer || targetLayer.locked || !targetLayer.visible) return;
 
   const currentType = stitchType || get(activeStitchType) || 'full';
-  const size = get(brushSize) || 1;
+  const size = customSize !== undefined ? customSize : (get(brushSize) || 1);
 
   const points: { x: number; y: number }[] = [];
-  if (size === 1) {
+  if (size <= 1) {
     points.push({ x, y });
   } else {
     const half = Math.floor(size / 2);
@@ -267,12 +273,14 @@ export function floodFill(startX: number, startY: number, newColorId: number, st
   const startKey = `${startX},${startY}`;
   const targetStitch = targetLayer.stitches[startKey];
   const targetColorId = targetStitch ? targetStitch.colorId : null;
+  const targetType = targetStitch ? (targetStitch.type || 'full') : null;
 
-  if (targetColorId === newColorId && targetStitch?.type === fillType) return;
+  if (targetColorId === newColorId && targetType === fillType) return;
 
   beginStroke('Flood Fill');
 
   const visited = new Set<string>();
+  const filledKeys: string[] = [];
   const queue: [number, number][] = [[startX, startY]];
 
   while (queue.length > 0) {
@@ -285,15 +293,36 @@ export function floodFill(startX: number, startY: number, newColorId: number, st
 
     const currentStitch = targetLayer.stitches[key];
     const currentColor = currentStitch ? currentStitch.colorId : null;
+    const currentType = currentStitch ? (currentStitch.type || 'full') : null;
 
-    if (currentColor === targetColorId) {
-      setStitchAt(x, y, newColorId, fillType);
+    if (currentColor === targetColorId && currentType === targetType) {
+      filledKeys.push(key);
       // 4-way neighbors
       queue.push([x + 1, y]);
       queue.push([x - 1, y]);
       queue.push([x, y + 1]);
       queue.push([x, y - 1]);
     }
+  }
+
+  if (filledKeys.length > 0) {
+    layers.update(ls => ls.map(l => {
+      if (l.id === activeId) {
+        const updated = { ...l.stitches };
+        for (const key of filledKeys) {
+          const existingStitch = targetLayer.stitches[key];
+          if (currentStrokeDelta) {
+            if (!(key in currentStrokeDelta.before)) {
+              currentStrokeDelta.before[key] = existingStitch ? { ...existingStitch } : null;
+            }
+            currentStrokeDelta.after[key] = { colorId: newColorId, type: fillType };
+          }
+          updated[key] = { colorId: newColorId, type: fillType };
+        }
+        return { ...l, stitches: updated };
+      }
+      return l;
+    }));
   }
 
   commitStroke('Flood Fill');
@@ -632,6 +661,12 @@ export function saveProjectFile(customFileName?: string) {
   URL.revokeObjectURL(url);
 }
 
+let onNewProjectSessionCallback: (() => void) | null = null;
+
+export function registerNewProjectSessionHook(cb: () => void) {
+  onNewProjectSessionCallback = cb;
+}
+
 export function loadCompleteProject(data: {
   name?: string;
   grid?: GridDimensions;
@@ -639,6 +674,7 @@ export function loadCompleteProject(data: {
   layers?: Layer[];
   fabricColor?: string;
 }) {
+  if (onNewProjectSessionCallback) onNewProjectSessionCallback();
   if (data.name) projectName.set(data.name);
   if (data.grid) grid.set(data.grid);
   if (data.palette) palette.set(data.palette);
@@ -650,6 +686,7 @@ export function loadCompleteProject(data: {
 }
 
 export function resetProject(dimensions: GridDimensions & { name?: string }, paletteChoice: 'default' | 'minimal' = 'default') {
+  if (onNewProjectSessionCallback) onNewProjectSessionCallback();
   grid.set({
     width: dimensions.width,
     height: dimensions.height,
@@ -749,6 +786,7 @@ export const activeStamp = writable<MotifStamp | null>(null);
 export const activeStitchType = writable<StitchType>('full');
 export const brushSize = writable<number>(1);
 export const eraserSize = writable<number>(1);
+export const shapeSize = writable<number>(1);
 export const wandTolerance = writable<number>(24);
 export const wandContiguous = writable<boolean>(true);
 export const lassoFilterMode = writable<'all' | 'stitches_only' | 'active_color'>('all');

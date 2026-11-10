@@ -16,6 +16,12 @@
   import DigitizerModal from './lib/components/DigitizerModal.svelte';
   import TextModal from './lib/components/TextModal.svelte';
   import ImageUrlModal from './lib/components/ImageUrlModal.svelte';
+  import ProjectLibraryModal from './lib/components/ProjectLibraryModal.svelte';
+  import {
+    initProjectStorage,
+    isProjectLibraryModalOpen,
+    saveCurrentProjectToDB
+  } from './lib/stores/projectStorage';
   import {
     activeTool,
     activeLayer,
@@ -153,11 +159,22 @@
       return;
     }
 
-    // Save Pattern: Cmd+S or Ctrl+S
+    // Open My Projects (Browser Library): Cmd+O or Ctrl+O
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'o') {
+      e.preventDefault();
+      isProjectLibraryModalOpen.set(true);
+      return;
+    }
+
+    // Save Pattern: Cmd+S (saves immediately to Browser Storage) or Cmd+Shift+S (Export .xstitch dialog)
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
       e.preventDefault();
-      initialSaveTab.set('xstitch');
-      isSaveModalOpen.set(true);
+      if (e.shiftKey) {
+        initialSaveTab.set('xstitch');
+        isSaveModalOpen.set(true);
+      } else {
+        saveCurrentProjectToDB();
+      }
       return;
     }
 
@@ -464,11 +481,14 @@
     }
   }
 
-  onMount(() => {
+  let cleanupStorage: (() => void) | null = null;
+
+  onMount(async () => {
     window.addEventListener('keydown', handleGlobalKeyDown);
     window.addEventListener('paste', handleWindowPaste);
     window.addEventListener('dragover', handleWindowDragOver);
     window.addEventListener('drop', handleWindowDrop);
+    cleanupStorage = await initProjectStorage();
   });
 
   onDestroy(() => {
@@ -476,6 +496,7 @@
     window.removeEventListener('paste', handleWindowPaste);
     window.removeEventListener('dragover', handleWindowDragOver);
     window.removeEventListener('drop', handleWindowDrop);
+    if (cleanupStorage) cleanupStorage();
   });
 </script>
 
@@ -610,6 +631,7 @@
   <DigitizerModal />
   <TextModal />
   <ImageUrlModal />
+  <ProjectLibraryModal />
 </div>
 
 

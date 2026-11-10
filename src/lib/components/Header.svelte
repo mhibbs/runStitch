@@ -15,8 +15,26 @@
     measurementUnit,
     formatDimensions
   } from '../stores/editorStore';
+  import {
+    autosaveStatus,
+    savedProjectsList,
+    isProjectLibraryModalOpen,
+    saveCurrentProjectToDB
+  } from '../stores/projectStorage';
   import MenuBar from './MenuBar.svelte';
-  import { Undo2, Redo2, Download, Plus, Maximize2, Pencil, Printer } from 'lucide-svelte';
+  import {
+    Undo2,
+    Redo2,
+    Download,
+    Plus,
+    Maximize2,
+    Pencil,
+    Printer,
+    FolderHeart,
+    Check,
+    Loader2,
+    AlertCircle
+  } from 'lucide-svelte';
 
   $: physicalDimensions = formatDimensions($grid.width, $grid.height, $grid.fabricCount, $measurementUnit);
 
@@ -80,8 +98,8 @@
       <MenuBar />
     </div>
 
-    <!-- Editable Project Name -->
-    <div class="hidden md:flex items-center border-l border-[#2e2e38] pl-3 ml-1">
+    <!-- Editable Project Name & Browser Autosave Status -->
+    <div class="hidden md:flex items-center border-l border-[#2e2e38] pl-3 ml-1 space-x-1.5">
       {#if isEditingName}
         <input
           bind:this={nameInputEl}
@@ -102,6 +120,33 @@
           <Pencil size={11} class="text-gray-500 group-hover:text-indigo-400 transition-colors" />
         </button>
       {/if}
+
+      <!-- Autosave Status Badge -->
+      <button
+        type="button"
+        class="flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer
+        {$autosaveStatus === 'saving'
+          ? 'text-amber-300 bg-amber-950/40 border border-amber-800/40'
+          : $autosaveStatus === 'error'
+          ? 'text-red-300 bg-red-950/40 border border-red-800/40'
+          : 'text-emerald-400/90 hover:text-emerald-300 hover:bg-[#252532]'}"
+        on:click={() => {
+          saveCurrentProjectToDB();
+          isProjectLibraryModalOpen.set(true);
+        }}
+        title="Auto-saved to browser storage • Click to open My Projects (Cmd+O)"
+      >
+        {#if $autosaveStatus === 'saving'}
+          <Loader2 size={10} class="animate-spin" />
+          <span>Saving…</span>
+        {:else if $autosaveStatus === 'error'}
+          <AlertCircle size={10} />
+          <span>Storage Full</span>
+        {:else}
+          <Check size={10} />
+          <span>Saved</span>
+        {/if}
+      </button>
     </div>
   </div>
 
@@ -143,11 +188,27 @@
 
     <div class="w-px h-4 bg-gray-700 mx-1 hidden sm:block"></div>
 
+    <!-- My Projects (Browser Library) Quick Button -->
+    <button
+      type="button"
+      class="flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-xs font-medium text-gray-200 hover:text-white bg-[#23232f] hover:bg-[#2d2d3d] border border-[#363648] transition-colors cursor-pointer"
+      on:click={() => isProjectLibraryModalOpen.set(true)}
+      title="Open My Projects Library (Cmd+O)"
+    >
+      <FolderHeart size={14} class="text-indigo-400" />
+      <span class="hidden sm:inline">My Projects</span>
+      {#if $savedProjectsList.length > 0}
+        <span class="text-[10px] font-mono bg-[#16161f] text-indigo-300 px-1.5 py-0.2 rounded-full border border-indigo-900/60">
+          {$savedProjectsList.length}
+        </span>
+      {/if}
+    </button>
+
     <!-- New Canvas Quick Button -->
     <button
-      class="hidden sm:flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-medium text-gray-300 hover:text-white hover:bg-[#2b2b36] border border-gray-700 transition-colors"
+      class="hidden sm:flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-medium text-gray-300 hover:text-white hover:bg-[#2b2b36] border border-gray-700 transition-colors cursor-pointer"
       on:click={() => isNewProjectModalOpen.set(true)}
-      title="New Canvas (Cmd+N)"
+      title="New Project (Cmd+N)"
     >
       <Plus size={14} />
       <span>New</span>
@@ -161,18 +222,18 @@
       title="Export Print-Ready PDF Chart (Cmd+P)"
     >
       <Printer size={14} />
-      <span class="hidden sm:inline">Export PDF</span>
+      <span class="hidden sm:inline">PDF Chart</span>
     </button>
 
-    <!-- Save / Export -->
+    <!-- Export / Download Project -->
     <button
       type="button"
       class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium px-3 py-1.5 rounded-md flex items-center space-x-1.5 shadow-sm transition-colors cursor-pointer"
       on:click={() => { initialSaveTab.set('xstitch'); isSaveModalOpen.set(true); }}
-      title="Save Pattern Project (Cmd+S)"
+      title="Download or Export Project File (Cmd+Shift+S)"
     >
       <Download size={14} />
-      <span class="hidden sm:inline">Save</span>
+      <span class="hidden sm:inline">Export</span>
     </button>
   </div>
 </header>

@@ -5,22 +5,24 @@
     activeStitchType,
     activeShapeTool,
     shapeFillMode,
+    shapeSize,
+    activeColor,
     isBorderModalOpen,
     isMotifLibraryModalOpen,
     activeStamp,
     openTextModal
   } from '../stores/editorStore';
   import type { ActiveTool, StitchType } from '../types';
+  import StitchIcon from './StitchIcon.svelte';
+  import LineToolIcon from './LineToolIcon.svelte';
   import {
     Move,
     BoxSelect,
     LassoSelect,
     Wand,
-    Pencil,
     Eraser,
     PaintBucket,
     Pipette,
-    Slash,
     Square,
     Circle,
     Stamp,
@@ -45,7 +47,7 @@
   const shapeVariants: { id: 'rectangle' | 'ellipse' | 'line'; label: string; icon: any; shortcut: string }[] = [
     { id: 'rectangle', label: 'Rectangle (R)', icon: Square, shortcut: 'R' },
     { id: 'ellipse', label: 'Ellipse (O)', icon: Circle, shortcut: 'O' },
-    { id: 'line', label: 'Line (L)', icon: Slash, shortcut: 'L' }
+    { id: 'line', label: 'Line (L)', icon: LineToolIcon, shortcut: 'L' }
   ];
 
   const stitchTypeVariants: { id: StitchType; label: string; symbol: string; desc: string }[] = [
@@ -174,16 +176,10 @@
         on:pointerdown={() => handlePointerDown('stitch')}
         on:pointerup={handlePointerUp}
         on:pointerleave={handlePointerUp}
-        title="Pencil Stitch Tool (B) - Right-click or hold for stitch types"
-        aria-label="Pencil Tool"
+        title="Stitch Tool (B) - Right-click or hold for stitch types"
+        aria-label="Stitch Tool"
       >
-        {#if $activeStitchType === 'half_forward'}
-          <span class="font-bold text-lg leading-none select-none">╱</span>
-        {:else if $activeStitchType === 'half_back'}
-          <span class="font-bold text-lg leading-none select-none">╲</span>
-        {:else}
-          <Pencil size={19} />
-        {/if}
+        <StitchIcon type={$activeStitchType} color={$activeColor?.hex} size={21} />
 
         <!-- Tiny Photoshop Corner Mark Indicator -->
         <button
@@ -197,7 +193,7 @@
         </button>
 
         <span class="absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
-          Pencil Stitch (B) [{$activeStitchType === 'half_forward' ? 'Half /' : ($activeStitchType === 'half_back' ? 'Half \\' : 'Full X')}]
+          Stitch Tool (B) [{$activeStitchType === 'half_forward' ? 'Half /' : ($activeStitchType === 'half_back' ? 'Half \\' : 'Full X')}]
         </span>
       </button>
 
@@ -207,14 +203,16 @@
           {#each stitchTypeVariants as st}
             <button
               type="button"
-              class="flex flex-col items-center justify-center p-2 rounded-lg transition-all min-w-[54px]
+              class="flex flex-col items-center justify-center p-2 rounded-lg transition-all min-w-[58px]
               {$activeStitchType === st.id && $activeTool === 'pencil'
                 ? 'bg-indigo-600 text-white shadow-md'
                 : 'text-gray-300 hover:text-white hover:bg-[#2b2b3a]'}"
               on:click={() => selectStitchType(st.id)}
               title={st.desc}
             >
-              <span class="text-base font-bold leading-none mb-1">{st.symbol}</span>
+              <div class="mb-1">
+                <StitchIcon type={st.id} color={$activeColor?.hex} size={20} />
+              </div>
               <span class="text-[10px] font-medium leading-tight whitespace-nowrap">{st.label}</span>
             </button>
           {/each}
@@ -277,7 +275,7 @@
           strokeWidth={$shapeFillMode === 'filled' ? 0 : 2}
         />
       {:else}
-        <Slash size={18} />
+        <LineToolIcon size={18} />
       {/if}
 
       <!-- Tiny Photoshop Corner Mark Indicator -->
@@ -336,6 +334,22 @@
             >
               Solid
             </button>
+          </div>
+        </div>
+
+        <div class="border-t border-[#2e2e3c] pt-2 flex items-center justify-between px-1">
+          <span class="text-[11px] text-gray-400">Size:</span>
+          <div class="flex items-center space-x-1 bg-[#121218] p-0.5 rounded border border-[#2b2b3a]">
+            {#each [1, 2, 3] as s}
+              <button
+                type="button"
+                class="w-6 h-5 rounded text-[11px] flex items-center justify-center transition-colors {$shapeSize === s ? 'bg-indigo-600 text-white font-medium' : 'text-gray-400 hover:text-gray-200'}"
+                on:click={() => shapeSize.set(s)}
+                title="Shape border/line thickness {s}×"
+              >
+                {s}×
+              </button>
+            {/each}
           </div>
         </div>
       </div>
