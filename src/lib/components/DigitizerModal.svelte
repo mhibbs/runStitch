@@ -492,7 +492,7 @@
   >
     <!-- Modal Card -->
     <div
-      class="bg-[#18181F] border border-cyan-500/30 rounded-2xl shadow-2xl max-w-5xl w-full max-h-[92vh] flex flex-col overflow-hidden text-gray-200"
+      class="bg-[#18181F] border border-cyan-500/30 rounded-2xl shadow-2xl max-w-5xl w-full max-h-[90dvh] flex flex-col overflow-hidden text-gray-200"
       role="document"
       tabindex="-1"
       on:click|stopPropagation

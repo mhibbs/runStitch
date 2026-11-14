@@ -62,7 +62,7 @@
       </div>
 
       <!-- Body -->
-      <div class="p-4 overflow-y-auto max-h-[60vh] space-y-2 text-xs">
+      <div class="p-4 overflow-y-auto max-h-[60dvh] space-y-2 text-xs">
         {#each shortcutList as sc}
           <div class="flex items-center justify-between py-1.5 px-2 rounded-lg bg-[#272733] border border-[#343444]">
             <span class="text-gray-300">{sc.desc}</span>

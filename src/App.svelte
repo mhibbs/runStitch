@@ -60,13 +60,18 @@
     quickDigitizeTextLayer,
     rotateTextLayer90,
     flipTextLayerHorizontal,
-    flipTextLayerVertical
+    flipTextLayerVertical,
+    selectedColorId,
+    activeColor
   } from './lib/stores/editorStore';
-  import { SwatchBook, Layers as LayersIcon, ChevronDown, ChevronRight, ChevronLeft } from 'lucide-svelte';
+  import { SwatchBook, Layers as LayersIcon, ChevronDown, ChevronRight, ChevronLeft, X } from 'lucide-svelte';
+
+  let windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1280;
+  $: isMobileDrawer = windowWidth < 768;
 
   let isPaletteExpanded = true;
   let isLayersExpanded = true;
-  let isSideDockOpen = true;
+  let isSideDockOpen = typeof window !== 'undefined' ? window.innerWidth >= 1024 : true;
 
   // Draggable accordion splitter state
   let layersPaneHeight = 280;
@@ -128,6 +133,33 @@
 
   function toggleDock() {
     isSideDockOpen = !isSideDockOpen;
+    if (isSideDockOpen && !isPaletteExpanded && !isLayersExpanded) {
+      isPaletteExpanded = true;
+      isLayersExpanded = true;
+    }
+  }
+
+  function togglePaletteAccordion() {
+    isPaletteExpanded = !isPaletteExpanded;
+    if (!isPaletteExpanded && !isLayersExpanded) {
+      isSideDockOpen = false;
+    }
+  }
+
+  function toggleLayersAccordion() {
+    isLayersExpanded = !isLayersExpanded;
+    if (!isPaletteExpanded && !isLayersExpanded) {
+      isSideDockOpen = false;
+    }
+  }
+
+  function openDockTo(section: 'palette' | 'layers') {
+    isSideDockOpen = true;
+    if (section === 'palette') {
+      isPaletteExpanded = true;
+    } else {
+      isLayersExpanded = true;
+    }
   }
 
   function isInputFocused(): boolean {
@@ -484,6 +516,10 @@
   let cleanupStorage: (() => void) | null = null;
 
   onMount(async () => {
+    windowWidth = window.innerWidth;
+    if (windowWidth < 1024) {
+      isSideDockOpen = false;
+    }
     window.addEventListener('keydown', handleGlobalKeyDown);
     window.addEventListener('paste', handleWindowPaste);
     window.addEventListener('dragover', handleWindowDragOver);
@@ -500,7 +536,9 @@
   });
 </script>
 
-<div class="flex flex-col w-screen h-screen overflow-hidden bg-[#141419] font-sans antialiased">
+<svelte:window bind:innerWidth={windowWidth} />
+
+<div class="flex flex-col w-dvw h-dvh safe-area-root overflow-hidden bg-[#141419] font-sans antialiased">
   <!-- Top Navigation Bar -->
   <Header />
 
@@ -513,43 +551,134 @@
     <Toolbar />
 
     <!-- Center Canvas Viewport (Infinite feel, multi-canvas stack) -->
-    <main class="flex-1 relative h-full overflow-hidden">
+    <main class="flex-1 relative h-full overflow-hidden min-w-0">
       <CanvasViewport />
+
+      <!-- Floating Quick-Swatch & Layer Pill (Shown when Side Dock is collapsed) -->
+      {#if !isSideDockOpen}
+        <div
+          class="absolute top-2.5 right-3 z-20 flex items-center space-x-1.5 bg-[#1e1e26]/95 backdrop-blur-md border border-[#3a3a4a] px-2 py-1.5 rounded-xl shadow-2xl max-w-[calc(100%-24px)] select-none"
+          role="toolbar"
+          aria-label="Quick Palette and Dock Controls"
+        >
+          <!-- Scrollable Quick Swatches -->
+          <div class="flex items-center space-x-1.5 overflow-x-auto no-scrollbar max-w-[150px] sm:max-w-[260px] pr-1">
+            {#each $palette as color (color.id)}
+              <button
+                type="button"
+                class="w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-bold flex-shrink-0 transition-transform cursor-pointer border
+                {$selectedColorId === color.id
+                  ? 'border-white ring-2 ring-indigo-400 scale-105 shadow-md'
+                  : 'border-black/40 opacity-85 hover:opacity-100'}"
+                style="background-color: {color.hex}; color: {color.symbolColor || '#FFFFFF'};"
+                on:click={() => selectedColorId.set(color.id)}
+                title="{(color.brand || 'dmc').toUpperCase()} {color.dmc} - {color.name}"
+                aria-label="Select {(color.brand || 'dmc').toUpperCase()} {color.dmc} {color.name}"
+              >
+                {color.symbol}
+              </button>
+            {/each}
+          </div>
+
+          <div class="w-px h-5 bg-[#363646] flex-shrink-0"></div>
+
+          <!-- Open Palette Dock Button -->
+          <button
+            type="button"
+            class="flex items-center space-x-1.5 px-2 py-1 rounded-lg bg-[#262632] hover:bg-indigo-600 text-gray-200 hover:text-white transition-colors text-xs font-medium flex-shrink-0 cursor-pointer"
+            on:click={() => openDockTo('palette')}
+            title="Open Floss & Palette Panel"
+            aria-label="Open Floss and Palette Panel"
+          >
+            <SwatchBook size={13} class="text-indigo-400" />
+            <span class="hidden sm:inline font-mono text-[11px]">{($activeColor?.brand || 'dmc').toUpperCase()} {$activeColor?.dmc || ''}</span>
+            <span class="text-[10px] font-mono bg-[#17171f] text-indigo-300 px-1 py-0.2 rounded border border-indigo-900/50">
+              {$palette.length}
+            </span>
+          </button>
+
+          <!-- Open Layers Dock Button -->
+          <button
+            type="button"
+            class="flex items-center space-x-1.5 px-2 py-1 rounded-lg bg-[#262632] hover:bg-indigo-600 text-gray-200 hover:text-white transition-colors text-xs font-medium flex-shrink-0 cursor-pointer"
+            on:click={() => openDockTo('layers')}
+            title="Open Layers Panel"
+            aria-label="Open Layers Panel"
+          >
+            <LayersIcon size={13} class="text-indigo-400" />
+            <span class="hidden sm:inline text-[11px] truncate max-w-[76px]">{$activeLayer?.name || 'Layers'}</span>
+            <span class="text-[10px] font-mono bg-[#17171f] text-indigo-300 px-1 py-0.2 rounded border border-indigo-900/50">
+              {$layers.length}
+            </span>
+          </button>
+        </div>
+      {/if}
     </main>
+
+    <!-- Mobile Overlay Backdrop when Side Drawer is open -->
+    {#if isMobileDrawer && isSideDockOpen}
+      <button
+        type="button"
+        aria-label="Close side drawer"
+        class="fixed inset-0 bg-black/50 backdrop-blur-[1px] z-30 md:hidden cursor-default border-0 p-0"
+        on:click={() => (isSideDockOpen = false)}
+      ></button>
+    {/if}
 
     <!-- Side Dock Collapse Toggle Button -->
     <button
-      class="absolute right-0 top-1/2 -translate-y-1/2 z-30 bg-[#252530] hover:bg-indigo-600 text-gray-400 hover:text-white border-y border-l border-[#3a3a4a] p-1 rounded-l-md shadow-lg transition-all hidden md:block"
-      style="right: {isSideDockOpen ? `${sideDockWidth}px` : '0px'};"
+      type="button"
+      class="absolute top-1/2 -translate-y-1/2 z-40 bg-[#252530] hover:bg-indigo-600 text-gray-300 hover:text-white border-y border-l border-[#3a3a4a] px-1 py-2.5 rounded-l-md shadow-lg transition-all cursor-pointer"
+      style="right: {isSideDockOpen ? (isMobileDrawer ? `min(${sideDockWidth}px, 88vw)` : `${sideDockWidth}px`) : '0px'};"
       on:click={toggleDock}
       title={isSideDockOpen ? 'Collapse Side Panel' : 'Expand Side Panel'}
+      aria-label={isSideDockOpen ? 'Collapse Side Panel' : 'Expand Side Panel'}
     >
       {#if isSideDockOpen}
-        <ChevronRight size={14} />
+        <ChevronRight size={15} />
       {:else}
-        <ChevronLeft size={14} />
+        <ChevronLeft size={15} />
       {/if}
     </button>
 
-    <!-- Right Side Dock (Clean Accordion for Palette & Layers) -->
+    <!-- Right Side Dock (Clean Accordion for Palette & Layers; Slide-Over Drawer on <768px) -->
     {#if isSideDockOpen}
       <aside
-        class="h-full flex flex-col bg-[#1e1e24] border-l border-[#2e2e38] shadow-2xl z-20 flex-shrink-0 select-none relative"
-        style="width: {sideDockWidth}px;"
+        class="h-full flex flex-col bg-[#1e1e24] border-l border-[#2e2e38] shadow-2xl flex-shrink-0 select-none {isMobileDrawer ? 'absolute right-0 top-0 bottom-0 z-40 max-w-[88vw]' : 'relative z-20'}"
+        style="width: {isMobileDrawer ? `min(${sideDockWidth}px, 88vw)` : `${sideDockWidth}px`};"
       >
-        <!-- Draggable Resizer on Left Edge of Dock -->
-        <div
-          class="absolute -left-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-indigo-500/40 active:bg-indigo-500 z-30 transition-colors select-none"
-          on:pointerdown={handleDockResizePointerDown}
-          on:pointermove={handleDockResizePointerMove}
-          on:pointerup={handleDockResizePointerUp}
-          title="Drag left/right to resize panel width"
-        ></div>
+        <!-- Mobile Drawer Close Header -->
+        {#if isMobileDrawer}
+          <div class="px-3 py-2 bg-[#1a1a22] border-b border-[#2e2e38] flex items-center justify-between flex-shrink-0">
+            <span class="text-xs font-bold text-gray-200 tracking-wide">Palette & Layers</span>
+            <button
+              type="button"
+              class="p-1.5 rounded-lg bg-[#252532] hover:bg-[#323242] text-gray-300 hover:text-white transition-colors"
+              on:click={() => (isSideDockOpen = false)}
+              title="Close Panel"
+              aria-label="Close Panel"
+            >
+              <X size={15} />
+            </button>
+          </div>
+        {/if}
+
+        <!-- Draggable Resizer on Left Edge of Dock (Desktop/Tablet) -->
+        {#if !isMobileDrawer}
+          <div
+            class="absolute -left-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-indigo-500/40 active:bg-indigo-500 z-30 transition-colors select-none"
+            on:pointerdown={handleDockResizePointerDown}
+            on:pointermove={handleDockResizePointerMove}
+            on:pointerup={handleDockResizePointerUp}
+            title="Drag left/right to resize panel width"
+          ></div>
+        {/if}
         <!-- Accordion Section 1: Floss & Palette -->
         <div class="flex flex-col {isPaletteExpanded ? (isLayersExpanded ? 'flex-1 min-h-0' : 'flex-1') : 'flex-shrink-0'} overflow-hidden">
           <button
-            class="w-full px-3 py-2 bg-[#23232c] hover:bg-[#282834] border-b border-[#2e2e38] flex items-center justify-between text-xs font-semibold text-gray-300 transition-colors"
-            on:click={() => (isPaletteExpanded = !isPaletteExpanded)}
+            type="button"
+            class="w-full px-3 py-2 bg-[#23232c] hover:bg-[#282834] border-b border-[#2e2e38] flex items-center justify-between text-xs font-semibold text-gray-300 transition-colors cursor-pointer"
+            on:click={togglePaletteAccordion}
             title={isPaletteExpanded ? 'Collapse Floss & Palette' : 'Expand Floss & Palette'}
           >
             <div class="flex items-center space-x-2">
@@ -576,7 +705,7 @@
         <!-- Draggable Resizer Splitter Bar (Active when both panels expanded) -->
         {#if isPaletteExpanded && isLayersExpanded}
           <div
-            class="h-1.5 w-full bg-[#252530] hover:bg-indigo-500/50 active:bg-indigo-500 cursor-row-resize flex items-center justify-center transition-colors group flex-shrink-0 relative select-none"
+            class="h-2 sm:h-1.5 w-full bg-[#252530] hover:bg-indigo-500/50 active:bg-indigo-500 cursor-row-resize flex items-center justify-center transition-colors group flex-shrink-0 relative select-none touch-none"
             on:pointerdown={handleSplitterPointerDown}
             on:pointermove={handleSplitterPointerMove}
             on:pointerup={handleSplitterPointerUp}
@@ -592,8 +721,9 @@
           style={isLayersExpanded && isPaletteExpanded ? `height: ${layersPaneHeight}px;` : ''}
         >
           <button
-            class="w-full px-3 py-2 bg-[#23232c] hover:bg-[#282834] border-b border-[#2e2e38] flex items-center justify-between text-xs font-semibold text-gray-300 transition-colors"
-            on:click={() => (isLayersExpanded = !isLayersExpanded)}
+            type="button"
+            class="w-full px-3 py-2 bg-[#23232c] hover:bg-[#282834] border-b border-[#2e2e38] flex items-center justify-between text-xs font-semibold text-gray-300 transition-colors cursor-pointer"
+            on:click={toggleLayersAccordion}
             title={isLayersExpanded ? 'Collapse Layers' : 'Expand Layers'}
           >
             <div class="flex items-center space-x-2">

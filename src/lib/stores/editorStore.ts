@@ -162,6 +162,33 @@ export function commitStroke(desc = 'Draw Stitches') {
   currentStrokeDelta = null;
 }
 
+/**
+ * Cancels the active in-progress stroke and reverts all modified cells on its layer
+ * without recording an undo entry (used for multi-touch gesture disambiguation and long-press).
+ */
+export function cancelStroke() {
+  if (!currentStrokeDelta) return;
+  const delta = currentStrokeDelta;
+  currentStrokeDelta = null;
+
+  if (Object.keys(delta.before).length === 0) return;
+
+  layers.update(ls =>
+    ls.map(l => {
+      if (l.id !== delta.layerId) return l;
+      const updated = { ...l.stitches };
+      for (const [key, prevStitch] of Object.entries(delta.before)) {
+        if (prevStitch === null) {
+          delete updated[key];
+        } else {
+          updated[key] = { ...prevStitch };
+        }
+      }
+      return { ...l, stitches: updated };
+    })
+  );
+}
+
 export function setStitchAt(
   x: number,
   y: number,
@@ -791,6 +818,10 @@ export const wandTolerance = writable<number>(24);
 export const wandContiguous = writable<boolean>(true);
 export const lassoFilterMode = writable<'all' | 'stitches_only' | 'active_color'>('all');
 export const selectionCombineMode = writable<'replace' | 'add' | 'subtract'>('replace');
+
+// Apple Pencil / Stylus & Touch Ergonomics
+export const pencilOnlyMode = writable<boolean>(false);
+export const hasDetectedPencil = writable<boolean>(false);
 
 export function ensureDmcInPalette(dmcCode: string): number {
   const currentPal = get(palette);

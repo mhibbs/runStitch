@@ -405,7 +405,7 @@
 
 {#if $isTextModalOpen}
   <div class="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 select-none animate-fadeIn">
-    <div class="bg-[#181820] border border-gray-700 w-full max-w-4xl rounded-2xl shadow-2xl flex flex-col max-h-[92vh] overflow-hidden text-gray-200">
+    <div class="bg-[#181820] border border-gray-700 w-full max-w-4xl rounded-2xl shadow-2xl flex flex-col max-h-[90dvh] overflow-hidden text-gray-200">
       <!-- Modal Header -->
       <div class="p-4 border-b border-gray-800 flex items-center justify-between bg-[#1f1f2a]">
         <div class="flex items-center space-x-3">

@@ -152,7 +152,7 @@
 
   <!-- Center Project Dimensions & Physical Fabric Spec (Clickable to resize) -->
   <button
-    class="hidden lg:flex items-center space-x-3 bg-[#131318] hover:bg-[#202028] px-3 py-1 rounded-full border border-[#2e2e38] hover:border-indigo-500/60 text-xs cursor-pointer transition-all group"
+    class="hidden md:flex items-center space-x-3 bg-[#131318] hover:bg-[#202028] px-3 py-1 rounded-full border border-[#2e2e38] hover:border-indigo-500/60 text-xs cursor-pointer transition-all group"
     on:click={() => isCanvasSizeModalOpen.set(true)}
     title="Click to Resize Canvas or Change Count"
   >
@@ -167,7 +167,7 @@
   </button>
 
   <!-- Right: Action Controls -->
-  <div class="flex items-center space-x-2">
+  <div class="flex items-center space-x-1.5 sm:space-x-2">
     <!-- Undo / Redo -->
     <button
       class="p-1.5 rounded-md text-gray-300 hover:text-white hover:bg-[#2b2b36] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
@@ -191,7 +191,7 @@
     <!-- My Projects (Browser Library) Quick Button -->
     <button
       type="button"
-      class="flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-xs font-medium text-gray-200 hover:text-white bg-[#23232f] hover:bg-[#2d2d3d] border border-[#363648] transition-colors cursor-pointer"
+      class="flex items-center space-x-1.5 px-2 sm:px-2.5 py-1 rounded-md text-xs font-medium text-gray-200 hover:text-white bg-[#23232f] hover:bg-[#2d2d3d] border border-[#363648] transition-colors cursor-pointer"
       on:click={() => isProjectLibraryModalOpen.set(true)}
       title="Open My Projects Library (Cmd+O)"
     >

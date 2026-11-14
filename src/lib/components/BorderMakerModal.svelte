@@ -167,7 +167,7 @@
     role="presentation"
   >
     <div
-      class="bg-[#1b1b24] border border-[#2d2d3c] rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden text-gray-200"
+      class="bg-[#1b1b24] border border-[#2d2d3c] rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90dvh] flex flex-col overflow-hidden text-gray-200"
       role="dialog"
       aria-modal="true"
       aria-labelledby="border-modal-title"

@@ -33,7 +33,10 @@
     flipHorizontal,
     flipVertical,
     isMotifLibraryModalOpen,
-    isBorderModalOpen
+    isBorderModalOpen,
+    deleteSelection,
+    pencilOnlyMode,
+    hasDetectedPencil
   } from '../stores/editorStore';
   import type { StitchType } from '../types';
   import StitchIcon from './StitchIcon.svelte';
@@ -62,7 +65,9 @@
     X,
     Sparkles,
     ChevronRight,
-    HelpCircle
+    HelpCircle,
+    Trash2,
+    PenTool
   } from 'lucide-svelte';
 
   const stitchTypes: { id: StitchType; label: string; symbol: string; title: string }[] = [
@@ -76,7 +81,7 @@
   }
 </script>
 
-<div class="h-9 bg-[#171720] border-b border-[#282834] px-3 flex items-center justify-between text-xs text-gray-300 select-none z-20 shadow-sm shrink-0 overflow-x-auto overflow-y-hidden">
+<div class="min-h-9 py-1 bg-[#171720] border-b border-[#282834] px-3 flex items-center justify-between text-xs text-gray-300 select-none z-20 shadow-sm shrink-0 overflow-x-auto overflow-y-hidden no-scrollbar">
   <!-- Left Side: Active Tool Indicator & Contextual Controls -->
   <div class="flex items-center space-x-3.5 min-w-max">
     <!-- Active Tool Badge -->
@@ -314,6 +319,15 @@
             title="Invert Selection (Cmd+Shift+I)"
           >
             Invert
+          </button>
+          <button
+            type="button"
+            class="px-2 py-0.5 rounded bg-[#20202c] hover:bg-red-600 text-gray-200 hover:text-white transition-colors text-[11px] flex items-center space-x-1"
+            on:click={deleteSelection}
+            title="Delete Selection Stitches (Delete/Backspace)"
+          >
+            <Trash2 size={11} />
+            <span>Delete</span>
           </button>
         </div>
       {/if}
@@ -637,19 +651,118 @@
     {/if}
   </div>
 
-  <!-- Right Side: Selection Status & Quick Actions -->
-  {#if $selection}
-    <div class="flex items-center space-x-2 pl-3 border-l border-[#2d2d3c] text-indigo-300 text-[11px] shrink-0">
-      <span>{$selection.width}×{$selection.height} sel</span>
-      <button
-        type="button"
-        class="px-1.5 py-0.5 rounded bg-gray-800 hover:bg-red-600 hover:text-white text-gray-300 transition-colors flex items-center space-x-0.5 text-[10px]"
-        on:click={clearSelection}
-        title="Deselect (Esc)"
-      >
-        <X size={10} />
-        <span>Esc</span>
-      </button>
-    </div>
-  {/if}
+  <!-- Right Side: Floating Selection / Selection Quick Actions & Stylus Mode -->
+  <div class="flex items-center space-x-2 pl-3 shrink-0">
+    {#if $floatingSelection && $activeTool !== 'move'}
+      <div class="flex items-center space-x-1.5 pl-2 border-l border-[#2d2d3c]">
+        <button
+          type="button"
+          class="px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-medium flex items-center space-x-1 text-[11px]"
+          on:click={commitFloatingSelection}
+          title="Commit Stitches to Active Layer (Enter)"
+        >
+          <Check size={11} />
+          <span>Commit</span>
+        </button>
+        <button
+          type="button"
+          class="px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 text-[11px] flex items-center space-x-1"
+          on:click={cancelFloatingSelection}
+          title="Cancel Floating Selection (Esc)"
+        >
+          <X size={11} />
+          <span>Cancel</span>
+        </button>
+        <button
+          type="button"
+          class="p-1 rounded hover:bg-[#2b2b38] text-gray-300 hover:text-white"
+          on:click={() => rotate90(true)}
+          title="Rotate 90° CW (R)"
+        >
+          <RotateCw size={12} />
+        </button>
+        <button
+          type="button"
+          class="p-1 rounded hover:bg-[#2b2b38] text-gray-300 hover:text-white"
+          on:click={flipHorizontal}
+          title="Flip Horizontal (H)"
+        >
+          <FlipHIcon size={12} />
+        </button>
+        <button
+          type="button"
+          class="p-1 rounded hover:bg-[#2b2b38] text-gray-300 hover:text-white"
+          on:click={flipVertical}
+          title="Flip Vertical (V)"
+        >
+          <FlipVIcon size={12} />
+        </button>
+      </div>
+    {/if}
+
+    {#if $selection}
+      <div class="flex items-center space-x-1.5 pl-2 border-l border-[#2d2d3c] text-indigo-300 text-[11px] shrink-0">
+        {#if $activeTool !== 'select'}
+          <button
+            type="button"
+            class="px-1.5 py-0.5 rounded bg-[#20202c] hover:bg-indigo-600 text-gray-200 hover:text-white transition-colors text-[11px] flex items-center space-x-1"
+            on:click={copySelection}
+            title="Copy Selection (Cmd+C)"
+          >
+            <Copy size={10} />
+            <span class="hidden sm:inline">Copy</span>
+          </button>
+          <button
+            type="button"
+            class="px-1.5 py-0.5 rounded bg-[#20202c] hover:bg-indigo-600 text-gray-200 hover:text-white transition-colors text-[11px] flex items-center space-x-1"
+            on:click={cutSelection}
+            title="Cut Selection (Cmd+X)"
+          >
+            <Scissors size={10} />
+            <span class="hidden sm:inline">Cut</span>
+          </button>
+          <button
+            type="button"
+            class="px-1.5 py-0.5 rounded bg-[#20202c] hover:bg-red-600 text-gray-200 hover:text-white transition-colors text-[11px] flex items-center space-x-1"
+            on:click={deleteSelection}
+            title="Delete Selection Stitches (Delete/Backspace)"
+          >
+            <Trash2 size={10} />
+            <span class="hidden sm:inline">Delete</span>
+          </button>
+        {/if}
+        <span>{$selection.width}×{$selection.height} sel</span>
+        <button
+          type="button"
+          class="px-1.5 py-0.5 rounded bg-gray-800 hover:bg-red-600 hover:text-white text-gray-300 transition-colors flex items-center space-x-0.5 text-[10px]"
+          on:click={clearSelection}
+          title="Deselect (Esc)"
+        >
+          <X size={10} />
+          <span>Esc</span>
+        </button>
+      </div>
+    {/if}
+
+    <button
+      type="button"
+      class="{$hasDetectedPencil ? 'flex' : 'hidden [@media(pointer:coarse)]:flex'} items-center space-x-1.5 px-2 py-0.5 rounded-md border text-[11px] font-medium transition-colors cursor-pointer shrink-0
+      {$pencilOnlyMode
+        ? 'bg-indigo-600/25 border-indigo-500/60 text-indigo-200 hover:bg-indigo-600/40'
+        : 'bg-[#20202c] border-[#323244] text-gray-300 hover:text-white hover:bg-[#2a2a38]'}"
+      on:click={() => pencilOnlyMode.update(v => !v)}
+      title={$pencilOnlyMode
+        ? 'Pencil Draws / Finger Pans enabled — tap to allow finger drawing'
+        : 'Tap to enable Pencil Draws / Finger Pans mode'}
+    >
+      {#if $pencilOnlyMode}
+        <PenTool size={11} class="text-indigo-400" />
+        <span>Pencil Draws</span>
+        <span class="text-gray-400 hidden sm:inline">/ Finger Pans</span>
+      {:else}
+        <Hand size={11} class="text-gray-400" />
+        <span>Touch Draws</span>
+      {/if}
+    </button>
+  </div>
 </div>

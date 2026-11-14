@@ -267,7 +267,7 @@
 
         {#if showNewLayerMenu}
           <div
-            class="absolute right-0 top-full mt-1.5 w-56 max-h-[min(360px,calc(100vh-140px))] overflow-y-auto bg-[#23232e] border border-indigo-500/40 rounded-xl shadow-2xl py-1.5 text-xs text-gray-200 z-50 animate-fadeIn"
+            class="absolute right-0 top-full mt-1.5 w-56 max-h-[min(360px,calc(100dvh-140px))] overflow-y-auto bg-[#23232e] border border-indigo-500/40 rounded-xl shadow-2xl py-1.5 text-xs text-gray-200 z-50 animate-fadeIn"
             role="menu"
             tabindex="-1"
           >
@@ -452,7 +452,7 @@
             </span>
             <button
               type="button"
-              class="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-white p-0.5 transition-opacity"
+              class="opacity-60 sm:opacity-0 sm:group-hover:opacity-100 [@media(pointer:coarse)]:opacity-90 text-gray-400 hover:text-white p-1 sm:p-0.5 transition-opacity"
               on:click|stopPropagation={() => startRename(layer)}
               title="Rename Layer"
             >
@@ -492,10 +492,10 @@
           {/if}
 
           <!-- Re-order buttons (Up/Down in visual list) -->
-          <div class="flex flex-col space-y-0.5 mr-1 opacity-70 group-hover:opacity-100 transition-opacity">
+          <div class="flex flex-col space-y-0.5 mr-1 opacity-90 sm:opacity-70 sm:group-hover:opacity-100 transition-opacity">
             <button
               type="button"
-              class="text-gray-400 hover:text-white disabled:opacity-20 p-0.5 rounded hover:bg-gray-700/50"
+              class="text-gray-400 hover:text-white disabled:opacity-20 p-1 sm:p-0.5 rounded hover:bg-gray-700/50"
               on:click|stopPropagation={() => moveLayer(layer.id, 'up')}
               disabled={isTop}
               title="Move Layer Up"
@@ -504,7 +504,7 @@
             </button>
             <button
               type="button"
-              class="text-gray-400 hover:text-white disabled:opacity-20 p-0.5 rounded hover:bg-gray-700/50"
+              class="text-gray-400 hover:text-white disabled:opacity-20 p-1 sm:p-0.5 rounded hover:bg-gray-700/50"
               on:click|stopPropagation={() => moveLayer(layer.id, 'down')}
               disabled={isBottom}
               title="Move Layer Down"

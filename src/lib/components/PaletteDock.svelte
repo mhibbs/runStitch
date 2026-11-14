@@ -235,7 +235,7 @@
 <!-- Add Thread Catalog Search Modal -->
 {#if showAddModal}
   <div class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-[#1f1f28] border border-gray-700 w-full max-w-lg rounded-xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
+    <div class="bg-[#1f1f28] border border-gray-700 w-full max-w-lg rounded-xl shadow-2xl flex flex-col max-h-[85dvh] overflow-hidden">
       <!-- Modal Header -->
       <div class="p-4 border-b border-gray-800 flex items-center justify-between bg-[#262632]">
         <div class="flex items-center space-x-2">
@@ -321,7 +321,7 @@
 <!-- Swap Thread Color Modal -->
 {#if swappingColor}
   <div class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-[#1f1f28] border border-gray-700 w-full max-w-lg rounded-xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
+    <div class="bg-[#1f1f28] border border-gray-700 w-full max-w-lg rounded-xl shadow-2xl flex flex-col max-h-[85dvh] overflow-hidden">
       <!-- Modal Header -->
       <div class="p-4 border-b border-gray-800 flex items-center justify-between bg-[#262632]">
         <div class="flex items-center space-x-2.5">
@@ -485,7 +485,7 @@
 <!-- Symbol Selector Modal -->
 {#if editingSymbolColor}
   <div class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-[#1f1f28] border border-gray-700 w-full max-w-md rounded-xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
+    <div class="bg-[#1f1f28] border border-gray-700 w-full max-w-md rounded-xl shadow-2xl flex flex-col max-h-[85dvh] overflow-hidden">
       <!-- Modal Header -->
       <div class="p-4 border-b border-gray-800 flex items-center justify-between bg-[#262632]">
         <div class="flex items-center space-x-2.5">

@@ -115,10 +115,10 @@
   });
 </script>
 
-<aside class="w-14 bg-[#1f1f26] border-r border-[#2e2e38] flex flex-col items-center py-3 select-none z-20 space-y-2.5 shadow-md relative">
+<aside class="w-14 bg-[#1f1f26] border-r border-[#2e2e38] flex flex-col items-center py-3 select-none z-20 space-y-2 sm:space-y-2.5 shadow-md relative max-h-full {openFlyout ? 'overflow-visible' : 'overflow-y-auto no-scrollbar'}">
   <!-- Move Tool (M) -->
   <button
-    class="w-10 h-10 rounded-lg flex items-center justify-center transition-all relative group
+    class="w-10 h-10 shrink-0 touch-target rounded-lg flex items-center justify-center transition-all relative group
     {$activeTool === 'move'
       ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
       : 'text-gray-400 hover:text-white hover:bg-[#2b2b36]'}"
@@ -127,18 +127,18 @@
     aria-label="Move Tool"
   >
     <Move size={19} />
-    <span class="absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
+    <span class="hidden md:block absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
       Move Tool (M)
     </span>
   </button>
 
-  <div class="w-7 h-px bg-[#2e2e38]"></div>
+  <div class="w-7 h-px shrink-0 bg-[#2e2e38]"></div>
 
   <!-- Selection Tools Cluster -->
-  <div class="flex flex-col space-y-1 w-11 items-center p-1 bg-[#17171e] rounded-xl border border-[#2d2d3a] shadow-inner">
+  <div class="flex flex-col space-y-1 w-12 items-center p-1 bg-[#17171e] rounded-xl border border-[#2d2d3a] shadow-inner shrink-0">
     {#each selectionTools as tool}
       <button
-        class="w-9 h-9 rounded-lg flex items-center justify-center transition-all relative group
+        class="w-9 h-9 shrink-0 touch-target rounded-lg flex items-center justify-center transition-all relative group
         {$activeTool === tool.id
           ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
           : 'text-gray-400 hover:text-white hover:bg-[#2b2b36]'}"
@@ -147,21 +147,21 @@
         aria-label={tool.label}
       >
         <svelte:component this={tool.icon} size={17} />
-        <span class="absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
+        <span class="hidden md:block absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
           {tool.label}
         </span>
       </button>
     {/each}
   </div>
 
-  <div class="w-7 h-px bg-[#2e2e38]"></div>
+  <div class="w-7 h-px shrink-0 bg-[#2e2e38]"></div>
 
   <!-- Primary Drawing Tools -->
-  <div class="flex flex-col space-y-1 w-full items-center">
+  <div class="flex flex-col space-y-1 w-full items-center shrink-0">
     <!-- Pencil Tool with Stitch Type Flyout -->
     <div class="relative tool-flyout-container">
       <button
-        class="w-10 h-10 rounded-lg flex items-center justify-center transition-all relative group
+        class="w-10 h-10 shrink-0 touch-target rounded-lg flex items-center justify-center transition-all relative group
         {$activeTool === 'pencil'
           ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
           : 'text-gray-400 hover:text-white hover:bg-[#2b2b36]'}"
@@ -192,7 +192,7 @@
           <span class="w-0 h-0 border-solid border-t-0 border-l-0 border-r-[4.5px] border-b-[4.5px] border-transparent border-r-gray-400 group-hover/corner:border-r-indigo-300 pointer-events-none"></span>
         </button>
 
-        <span class="absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
+        <span class="hidden md:block absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
           Stitch Tool (B) [{$activeStitchType === 'half_forward' ? 'Half /' : ($activeStitchType === 'half_back' ? 'Half \\' : 'Full X')}]
         </span>
       </button>
@@ -223,7 +223,7 @@
     <!-- Other Draw Tools: Eraser, Bucket, Pipette -->
     {#each drawTools as tool}
       <button
-        class="w-10 h-10 rounded-lg flex items-center justify-center transition-all relative group
+        class="w-10 h-10 shrink-0 touch-target rounded-lg flex items-center justify-center transition-all relative group
         {$activeTool === tool.id
           ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
           : 'text-gray-400 hover:text-white hover:bg-[#2b2b36]'}"
@@ -232,19 +232,19 @@
         aria-label={tool.label}
       >
         <svelte:component this={tool.icon} size={19} />
-        <span class="absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
+        <span class="hidden md:block absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
           {tool.label}
         </span>
       </button>
     {/each}
   </div>
 
-  <div class="w-7 h-px bg-[#2e2e38]"></div>
+  <div class="w-7 h-px shrink-0 bg-[#2e2e38]"></div>
 
   <!-- Consolidated Geometric Shape Slot with Photoshop Flyout -->
-  <div class="relative tool-flyout-container">
+  <div class="relative tool-flyout-container shrink-0">
     <button
-      class="w-10 h-10 rounded-lg flex items-center justify-center transition-all relative group
+      class="w-10 h-10 shrink-0 touch-target rounded-lg flex items-center justify-center transition-all relative group
       {isShapeActive
         ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
         : 'text-gray-400 hover:text-white hover:bg-[#2b2b36]'}"
@@ -289,7 +289,7 @@
         <span class="w-0 h-0 border-solid border-t-0 border-l-0 border-r-[4.5px] border-b-[4.5px] border-transparent border-r-gray-400 group-hover/corner:border-r-indigo-300 pointer-events-none"></span>
       </button>
 
-      <span class="absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
+      <span class="hidden md:block absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
         Shape ({$activeShapeTool.toUpperCase()}) • Right-click or hold for flyout
       </span>
     </button>
@@ -356,14 +356,14 @@
     {/if}
   </div>
 
-  <div class="w-7 h-px bg-[#2e2e38]"></div>
+  <div class="w-7 h-px shrink-0 bg-[#2e2e38]"></div>
 
   <!-- Creative Cross-Stitch Tools: Stamp Library & Border Maker -->
-  <div class="flex flex-col space-y-1 w-full items-center">
+  <div class="flex flex-col space-y-1 w-full items-center shrink-0">
     <!-- Motif Stamp Library -->
     <button
       type="button"
-      class="w-10 h-10 rounded-lg flex items-center justify-center transition-all relative group
+      class="w-10 h-10 shrink-0 touch-target rounded-lg flex items-center justify-center transition-all relative group
       {$activeTool === 'stamp'
         ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
         : 'text-emerald-400 hover:text-white hover:bg-[#2b2b36]'}"
@@ -372,7 +372,7 @@
       aria-label="Motif Library"
     >
       <Stamp size={19} />
-      <span class="absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
+      <span class="hidden md:block absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
         Motif & Stamp Library
       </span>
     </button>
@@ -380,13 +380,13 @@
     <!-- Border Repeater / Maker -->
     <button
       type="button"
-      class="w-10 h-10 rounded-lg flex items-center justify-center transition-all relative group text-amber-400 hover:text-white hover:bg-[#2b2b36]"
+      class="w-10 h-10 shrink-0 touch-target rounded-lg flex items-center justify-center transition-all relative group text-amber-400 hover:text-white hover:bg-[#2b2b36]"
       on:click={() => { closeFlyout(); isBorderModalOpen.set(true); }}
       title="Border Repeater & Perimeter Maker"
       aria-label="Border Maker"
     >
       <Frame size={19} />
-      <span class="absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
+      <span class="hidden md:block absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
         Border Repeater...
       </span>
     </button>
@@ -394,7 +394,7 @@
     <!-- Typography Text Tool -->
     <button
       type="button"
-      class="w-10 h-10 rounded-lg flex items-center justify-center transition-all relative group
+      class="w-10 h-10 shrink-0 touch-target rounded-lg flex items-center justify-center transition-all relative group
       {$activeTool === 'text'
         ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
         : 'text-indigo-400 hover:text-white hover:bg-[#2b2b36]'}"
@@ -403,7 +403,7 @@
       aria-label="Text Tool"
     >
       <Type size={19} />
-      <span class="absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
+      <span class="hidden md:block absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
         Typography & Text (T)
       </span>
     </button>
@@ -411,7 +411,7 @@
     <!-- Pan Tool -->
     <button
       type="button"
-      class="w-10 h-10 rounded-lg flex items-center justify-center transition-all relative group
+      class="w-10 h-10 shrink-0 touch-target rounded-lg flex items-center justify-center transition-all relative group
       {$activeTool === 'pan'
         ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
         : 'text-gray-400 hover:text-white hover:bg-[#2b2b36]'}"
@@ -420,7 +420,7 @@
       aria-label="Pan Tool"
     >
       <Hand size={19} />
-      <span class="absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
+      <span class="hidden md:block absolute left-14 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
         Pan Hand (H)
       </span>
     </button>

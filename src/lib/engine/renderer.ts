@@ -1078,7 +1078,8 @@ export function getImageHandleAt(
   screenX: number,
   screenY: number,
   image: { x: number; y: number; width: number; height: number; rotation?: number },
-  viewport: Viewport
+  viewport: Viewport,
+  isCoarse: boolean = false
 ): ImageHandleType | null {
   const { zoom, panX, panY } = viewport;
   const cx = panX + (image.x + image.width / 2) * zoom;
@@ -1095,7 +1096,7 @@ export function getImageHandleAt(
   const localX = dx * cos - dy * sin;
   const localY = dx * sin + dy * cos;
 
-  const handleRadius = 12;
+  const handleRadius = isCoarse ? 22 : 12;
 
   // Rotation handle is at (0, -hh - 22)
   if (Math.hypot(localX, localY - (-hh - 22)) <= handleRadius + 4) {
@@ -1115,8 +1116,8 @@ export function getImageHandleAt(
   if (Math.hypot(localX - hw, localY) <= handleRadius) return 'e';
 
   // Bounding border for moving/dragging the image layer
-  // A narrow band (8px) around the perimeter of the bounding box
-  const borderBand = 8;
+  // A narrow band around the perimeter of the bounding box
+  const borderBand = isCoarse ? 14 : 8;
   const isNearBorder =
     (Math.abs(localX - (-hw)) <= borderBand && localY >= -hh - borderBand && localY <= hh + borderBand) ||
     (Math.abs(localX - hw) <= borderBand && localY >= -hh - borderBand && localY <= hh + borderBand) ||

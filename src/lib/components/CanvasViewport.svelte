@@ -66,7 +66,12 @@
     activeStitchType,
     brushSize,
     eraserSize,
-    shapeSize
+    shapeSize,
+    cancelStroke,
+    undo,
+    redo,
+    pencilOnlyMode,
+    hasDetectedPencil
   } from '../stores/editorStore';
   import {
     renderBackground,
@@ -101,7 +106,8 @@
     ZoomIn,
     ZoomOut,
     Sparkles,
-    RotateCw
+    RotateCw,
+    Pipette
   } from 'lucide-svelte';
 
   let containerEl: HTMLDivElement;
@@ -115,6 +121,8 @@
 
   let width = 800;
   let height = 600;
+  let hasMeasuredDimensions = false;
+  let resizeObserver: ResizeObserver | null = null;
 
   // Interaction tracking
   let isPointerDown = false;
@@ -123,6 +131,23 @@
   let activePointers = new Map<number, { x: number; y: number }>();
   let initialPinchDistance = 0;
   let initialPinchZoom = 24;
+  let pinchStartMid = { x: 0, y: 0 };
+  let pinchStartPan = { panX: 0, panY: 0 };
+
+  // Multi-touch gesture disambiguation (2-finger tap undo, 3-finger tap redo, pinch rollback)
+  let touchGestureStartTime = 0;
+  let touchGestureMaxPointers = 0;
+  let touchGestureMaxMove = 0;
+  let touchStartPositions = new Map<number, { x: number; y: number }>();
+
+  // Long-press touch eyedropper state
+  let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  let longPressOrigin: { screenX: number; screenY: number; gridX: number; gridY: number } | null = null;
+  let pickedColorToast: { hex: string; dmc: string; name: string } | null = null;
+  let pickedToastTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Continuous stroke cell tracking (Bresenham interpolation between move events)
+  let lastStrokeCell: { x: number; y: number } | null = null;
 
   // Marquee Selection and Floating Selection drag tracking
   let isSelecting = false;
@@ -192,8 +217,26 @@
   function updateDimensions() {
     if (!containerEl) return;
     const rect = containerEl.getBoundingClientRect();
-    width = Math.floor(rect.width);
-    height = Math.floor(rect.height);
+    const newW = Math.floor(rect.width);
+    const newH = Math.floor(rect.height);
+    if (newW <= 0 || newH <= 0) return;
+    if (hasMeasuredDimensions && newW === width && newH === height) return;
+
+    if (hasMeasuredDimensions) {
+      const dx = Math.round((newW - width) / 2);
+      const dy = Math.round((newH - height) / 2);
+      if (dx !== 0 || dy !== 0) {
+        viewport.update(v => ({
+          ...v,
+          panX: v.panX + dx,
+          panY: v.panY + dy
+        }));
+      }
+    }
+
+    width = newW;
+    height = newH;
+    hasMeasuredDimensions = true;
 
     const dpr = window.devicePixelRatio || 1;
 
@@ -207,7 +250,7 @@
 
     [bgCtx, stitchCtx, overlayCtx].forEach(ctx => {
       if (ctx) {
-        ctx.scale(dpr, dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
     });
 
@@ -310,16 +353,138 @@
     };
   }
 
+  function clearLongPressTimer() {
+    if (longPressTimer !== null) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+    longPressOrigin = null;
+  }
+
+  function showPickedColorToast(colorId: number) {
+    const c = $palette.find(p => p.id === colorId);
+    if (!c) return;
+    pickedColorToast = {
+      hex: c.hex,
+      dmc: `${(c.brand || 'dmc').toUpperCase()} ${c.dmc}`,
+      name: c.name
+    };
+    if (pickedToastTimer !== null) clearTimeout(pickedToastTimer);
+    pickedToastTimer = setTimeout(() => {
+      pickedColorToast = null;
+      pickedToastTimer = null;
+    }, 1500);
+  }
+
+  function startLongPressEyedropper(screenX: number, screenY: number, gridX: number, gridY: number) {
+    clearLongPressTimer();
+    longPressOrigin = { screenX, screenY, gridX, gridY };
+    longPressTimer = setTimeout(() => {
+      longPressTimer = null;
+      longPressOrigin = null;
+      cancelStroke();
+      isPointerDown = false;
+      lastStrokeCell = null;
+      if (pickColorAt(gridX, gridY)) {
+        showPickedColorToast(get(selectedColorId));
+      }
+      redrawStitches();
+      redrawOverlay();
+    }, 450);
+  }
+
+  function rollbackInProgressSingleTouchAction() {
+    clearLongPressTimer();
+    cancelStroke();
+    isPointerDown = false;
+    lastStrokeCell = null;
+    isDrawingShape = false;
+    shapePreviewCells = null;
+    isDrawingLasso = false;
+    lassoPoints = null;
+    isSelecting = false;
+    clearedSelectionOnClick = false;
+    didDragSelection = false;
+    isDraggingFloating = false;
+    isMovingStitchLayer = false;
+    if (Object.keys(moveLayerInitialStitches).length > 0 && $activeLayer) {
+      layers.update(ls => ls.map(l => l.id === $activeLayer.id ? { ...l, stitches: moveLayerInitialStitches } : l));
+      moveLayerInitialStitches = {};
+    }
+    isTransformingImage = false;
+    activeImageHandle = null;
+    transformStartLayersSnapshot = null;
+    redrawStitches();
+    redrawOverlay();
+  }
+
   function handlePointerDown(e: PointerEvent) {
     containerEl.setPointerCapture(e.pointerId);
     activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-    // Multi-touch pinch start
+    // Auto-detect Apple Pencil / Stylus and enable Pencil Draws / Finger Pans mode
+    if (e.pointerType === 'pen' && !$hasDetectedPencil) {
+      hasDetectedPencil.set(true);
+      pencilOnlyMode.set(true);
+    }
+
+    // Track multi-touch gesture timing & movement for disambiguation and tap shortcuts
+    if (e.pointerType === 'touch') {
+      if (activePointers.size === 1) {
+        touchGestureStartTime = Date.now();
+        touchGestureMaxPointers = 1;
+        touchGestureMaxMove = 0;
+        touchStartPositions.clear();
+      } else {
+        touchGestureMaxPointers = Math.max(touchGestureMaxPointers, activePointers.size);
+      }
+      touchStartPositions.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    // 3+ fingers: cancel accidental stroke/pan for clean 3-finger tap Redo
+    if (activePointers.size >= 3) {
+      clearLongPressTimer();
+      if (Date.now() - touchGestureStartTime < 220 && touchGestureMaxMove < 18) {
+        rollbackInProgressSingleTouchAction();
+      }
+      isPanning = false;
+      return;
+    }
+
+    // Multi-touch 2-finger pinch-zoom & simultaneous pan start
     if (activePointers.size === 2) {
+      clearLongPressTimer();
+      if (Date.now() - touchGestureStartTime < 180 && touchGestureMaxMove < 18) {
+        rollbackInProgressSingleTouchAction();
+      } else {
+        if (isPointerDown) {
+          commitStroke();
+        }
+        isPointerDown = false;
+        lastStrokeCell = null;
+        isDrawingShape = false;
+        shapePreviewCells = null;
+        isDrawingLasso = false;
+        lassoPoints = null;
+        isSelecting = false;
+        clearedSelectionOnClick = false;
+        didDragSelection = false;
+        isDraggingFloating = false;
+        isMovingStitchLayer = false;
+        isTransformingImage = false;
+        redrawOverlay();
+      }
+
       isPanning = true;
       const pts = Array.from(activePointers.values());
+      const rect = containerEl.getBoundingClientRect();
       initialPinchDistance = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
       initialPinchZoom = $viewport.zoom;
+      pinchStartMid = {
+        x: (pts[0].x + pts[1].x) / 2 - rect.left,
+        y: (pts[0].y + pts[1].y) / 2 - rect.top
+      };
+      pinchStartPan = { panX: $viewport.panX, panY: $viewport.panY };
       return;
     }
 
@@ -340,7 +505,7 @@
       const rect = containerEl.getBoundingClientRect();
       const clientX = e.clientX - rect.left;
       const clientY = e.clientY - rect.top;
-      const handle = getImageHandleAt(clientX, clientY, $activeLayer.image, $viewport);
+      const handle = getImageHandleAt(clientX, clientY, $activeLayer.image, $viewport, e.pointerType !== 'mouse');
       if (handle) {
         isTransformingImage = true;
         transformStartLayersSnapshot = cloneLayers($layers);
@@ -360,6 +525,28 @@
     }
 
     const { x, y } = screenToGrid(e.clientX, e.clientY);
+
+    // Floating Selection Drag & Commit logic (check inside-drag before Pencil-mode touch pan)
+    if ($floatingSelection) {
+      const f = $floatingSelection;
+      const isInside = x >= f.x && x < f.x + f.width && y >= f.y && y < f.y + f.height;
+      if (isInside) {
+        isDraggingFloating = true;
+        dragFloatingOffset = { dx: x - f.x, dy: y - f.y };
+        return;
+      } else if (!($pencilOnlyMode && e.pointerType === 'touch')) {
+        // Clicking outside commits the floating selection (unless finger-panning in Pencil mode)
+        commitFloatingSelection();
+      }
+    }
+
+    // In "Pencil Draws / Finger Pans" mode, single-finger touch always pans the canvas
+    if ($pencilOnlyMode && e.pointerType === 'touch') {
+      isPointerDown = false;
+      isPanning = true;
+      lastPointerPos = { x: e.clientX, y: e.clientY };
+      return;
+    }
 
     // Move Tool logic (Photoshop/Illustrator standard)
     if ($activeTool === 'move') {
@@ -398,20 +585,6 @@
         moveStitchStartGrid = { x, y };
         moveLayerInitialStitches = { ...$activeLayer.stitches };
         return;
-      }
-    }
-
-    // Floating Selection Drag & Commit logic
-    if ($floatingSelection) {
-      const f = $floatingSelection;
-      const isInside = x >= f.x && x < f.x + f.width && y >= f.y && y < f.y + f.height;
-      if (isInside) {
-        isDraggingFloating = true;
-        dragFloatingOffset = { dx: x - f.x, dy: y - f.y };
-        return;
-      } else {
-        // Clicking outside commits the floating selection
-        commitFloatingSelection();
       }
     }
 
@@ -508,15 +681,26 @@
     const isWithinPasteboard = x >= -60 && x < $grid.width + 60 && y >= -60 && y < $grid.height + 60;
     if (isWithinPasteboard) {
       if ($activeTool === 'pencil') {
+        const hadPreexistingStitch =
+          e.pointerType === 'touch' &&
+          !$pencilOnlyMode &&
+          $layers.some(l => l.visible && !!l.stitches[`${x},${y}`]);
         beginStroke('Pencil Stitch');
         setStitchAt(x, y, $selectedColorId);
+        lastStrokeCell = { x, y };
+        if (hadPreexistingStitch) {
+          startLongPressEyedropper(e.clientX, e.clientY, x, y);
+        }
       } else if ($activeTool === 'eraser') {
         beginStroke('Erase Stitch');
         eraseStitchAt(x, y);
+        lastStrokeCell = { x, y };
       } else if ($activeTool === 'bucket') {
         floodFill(x, y, $selectedColorId);
       } else if ($activeTool === 'picker') {
-        pickColorAt(x, y);
+        if (pickColorAt(x, y)) {
+          showPickedColorToast(get(selectedColorId));
+        }
       }
     }
   }
@@ -526,15 +710,41 @@
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     }
 
-    // 2-finger pinch & pan
+    if (e.pointerType === 'pen' && !$hasDetectedPencil) {
+      hasDetectedPencil.set(true);
+      pencilOnlyMode.set(true);
+    }
+
+    if (e.pointerType === 'touch') {
+      const startPos = touchStartPositions.get(e.pointerId);
+      if (startPos) {
+        const moveDist = Math.hypot(e.clientX - startPos.x, e.clientY - startPos.y);
+        if (moveDist > touchGestureMaxMove) {
+          touchGestureMaxMove = moveDist;
+        }
+      }
+      if (longPressOrigin && Math.hypot(e.clientX - longPressOrigin.screenX, e.clientY - longPressOrigin.screenY) > 8) {
+        clearLongPressTimer();
+      }
+    }
+
+    // 2-finger simultaneous pinch-zoom & focal-point pan
     if (activePointers.size === 2 && isPanning) {
       const pts = Array.from(activePointers.values());
       const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      if (initialPinchDistance > 0) {
-        const factor = dist / initialPinchDistance;
-        const newZoom = Math.min(64, Math.max(4, Math.round(initialPinchZoom * factor)));
-        viewport.update(v => ({ ...v, zoom: newZoom }));
-      }
+      const rect = containerEl.getBoundingClientRect();
+      const midX = (pts[0].x + pts[1].x) / 2 - rect.left;
+      const midY = (pts[0].y + pts[1].y) / 2 - rect.top;
+      const scale = initialPinchDistance > 10 ? dist / initialPinchDistance : 1;
+      const newZoom = Math.min(80, Math.max(4, Math.round(initialPinchZoom * scale)));
+      const worldX = (pinchStartMid.x - pinchStartPan.panX) / initialPinchZoom;
+      const worldY = (pinchStartMid.y - pinchStartPan.panY) / initialPinchZoom;
+
+      viewport.set({
+        zoom: newZoom,
+        panX: Math.round(midX - worldX * newZoom),
+        panY: Math.round(midY - worldY * newZoom)
+      });
       return;
     }
 
@@ -685,7 +895,7 @@
       const rect = containerEl.getBoundingClientRect();
       const clientX = e.clientX - rect.left;
       const clientY = e.clientY - rect.top;
-      const handle = getImageHandleAt(clientX, clientY, $activeLayer.image, $viewport);
+      const handle = getImageHandleAt(clientX, clientY, $activeLayer.image, $viewport, e.pointerType !== 'mouse');
       if (handle) {
         if (handle === 'nw' || handle === 'se') dynamicCursor = 'nwse-resize';
         else if (handle === 'ne' || handle === 'sw') dynamicCursor = 'nesw-resize';
@@ -764,20 +974,55 @@
       return;
     }
 
-    // Drag drawing
+    // Drag drawing with continuous Bresenham line interpolation
     if (isPointerDown) {
       if ($activeTool === 'pencil') {
-        setStitchAt(x, y, $selectedColorId);
+        const pts = lastStrokeCell ? getLineCells(lastStrokeCell.x, lastStrokeCell.y, x, y) : [{ x, y }];
+        for (const pt of pts) {
+          if (pt.x >= -60 && pt.x < $grid.width + 60 && pt.y >= -60 && pt.y < $grid.height + 60) {
+            setStitchAt(pt.x, pt.y, $selectedColorId);
+          }
+        }
+        lastStrokeCell = { x, y };
       } else if ($activeTool === 'eraser') {
-        eraseStitchAt(x, y);
+        const pts = lastStrokeCell ? getLineCells(lastStrokeCell.x, lastStrokeCell.y, x, y) : [{ x, y }];
+        for (const pt of pts) {
+          if (pt.x >= -60 && pt.x < $grid.width + 60 && pt.y >= -60 && pt.y < $grid.height + 60) {
+            eraseStitchAt(pt.x, pt.y);
+          }
+        }
+        lastStrokeCell = { x, y };
       }
     }
   }
 
   function handlePointerUp(e: PointerEvent) {
     activePointers.delete(e.pointerId);
+    clearLongPressTimer();
+
+    // Update lastPointerPos when transitioning from 2-finger pinch/pan back to 1 finger
+    if (activePointers.size === 1 && isPanning) {
+      const remaining = Array.from(activePointers.values())[0];
+      lastPointerPos = { x: remaining.x, y: remaining.y };
+    }
 
     if (activePointers.size === 0) {
+      lastStrokeCell = null;
+
+      // Check for Procreate-style 2-finger tap Undo / 3-finger tap Redo
+      if (e.pointerType === 'touch') {
+        hoverCoord.set(null);
+        const elapsed = Date.now() - touchGestureStartTime;
+        if (elapsed < 280 && touchGestureMaxMove < 16) {
+          if (touchGestureMaxPointers === 2) {
+            undo();
+          } else if (touchGestureMaxPointers === 3) {
+            redo();
+          }
+        }
+        touchGestureMaxPointers = 0;
+        touchStartPositions.clear();
+      }
       if (isMovingStitchLayer && $activeLayer) {
         commitLayerStitchesMove($activeLayer.id, moveLayerInitialStitches, $activeLayer.stitches);
         isMovingStitchLayer = false;
@@ -1185,6 +1430,13 @@
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('click', handleWindowClick);
 
+    if (typeof ResizeObserver !== 'undefined' && containerEl) {
+      resizeObserver = new ResizeObserver(() => {
+        updateDimensions();
+      });
+      resizeObserver.observe(containerEl);
+    }
+
     updateDimensions();
     zoomToFit();
   });
@@ -1193,6 +1445,13 @@
     if (animFrameId !== null) {
       cancelAnimationFrame(animFrameId);
     }
+    clearLongPressTimer();
+    if (pickedToastTimer !== null) {
+      clearTimeout(pickedToastTimer);
+      pickedToastTimer = null;
+    }
+    resizeObserver?.disconnect();
+    resizeObserver = null;
     window.removeEventListener('resize', updateDimensions);
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('keyup', handleKeyUp);
@@ -1225,10 +1484,26 @@
   <!-- Interactive Overlays & Hover Highlight -->
   <canvas bind:this={overlayCanvas} class="absolute inset-0 pointer-events-none"></canvas>
 
+  <!-- Eyedropper Picked Color Toast (Long-press / Touch feedback) -->
+  {#if pickedColorToast}
+    <div
+      class="absolute top-4 left-1/2 -translate-x-1/2 bg-[#1e1e24]/95 backdrop-blur-md border border-indigo-500/50 shadow-2xl px-3 py-1.5 rounded-full flex items-center space-x-2 text-xs text-gray-100 z-40 pointer-events-none select-none animate-fadeIn"
+      role="status"
+      aria-live="polite"
+    >
+      <span
+        class="w-4 h-4 rounded-full border border-white/30 shrink-0 shadow-sm"
+        style="background-color: {pickedColorToast.hex};"
+      ></span>
+      <span class="font-mono font-semibold text-indigo-300">{pickedColorToast.dmc}</span>
+      <span class="text-gray-300 truncate max-w-[140px]">{pickedColorToast.name}</span>
+    </div>
+  {/if}
+
   <!-- Floating Image Layer Controls Pill -->
   {#if $activeLayer && $activeLayer.type === 'image' && $activeLayer.image}
     <div
-      class="absolute top-4 left-1/2 -translate-x-1/2 bg-[#1e1e24]/95 backdrop-blur-md border border-cyan-500/50 shadow-2xl px-3 py-1.5 rounded-xl flex items-center space-x-2.5 text-xs text-gray-200 z-30 select-none pointer-events-auto"
+      class="absolute top-14 md:top-4 left-1/2 -translate-x-1/2 max-w-[calc(100%-20px)] overflow-x-auto no-scrollbar bg-[#1e1e24]/95 backdrop-blur-md border border-cyan-500/50 shadow-2xl px-3 py-1.5 rounded-xl flex items-center space-x-2.5 text-xs text-gray-200 z-30 select-none pointer-events-auto"
       role="toolbar"
       aria-label="Image Layer Controls"
       tabindex="-1"
@@ -1303,7 +1578,7 @@
 
   <!-- HUD Coordinate & Live Details Bar (Bottom Left) -->
   <div
-    class="hud-container absolute bottom-3 left-3 bg-[#1e1e24]/95 backdrop-blur-md border border-[#3a3a4a] px-3.5 py-2 rounded-xl text-xs text-gray-300 flex flex-col space-y-1.5 shadow-2xl z-20 pointer-events-auto select-none"
+    class="hud-container absolute bottom-2.5 left-2.5 sm:bottom-3 sm:left-3 max-w-[calc(100%-20px)] bg-[#1e1e24]/95 backdrop-blur-md border border-[#3a3a4a] px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs text-gray-300 flex flex-col space-y-1.5 shadow-2xl z-20 pointer-events-auto select-none"
     role="toolbar"
     aria-label="Canvas HUD and Controls"
     tabindex="-1"
@@ -1314,7 +1589,7 @@
     on:keydown|stopPropagation
   >
     <!-- Line 1: Interactive Controls (Standard Desktop Order) -->
-    <div class="flex items-center space-x-2.5">
+    <div class="flex flex-wrap items-center gap-y-1 gap-x-2 sm:gap-x-2.5">
       <!-- Cloth Color Swatch Button & Popover -->
       <div class="relative">
         <button
@@ -1396,10 +1671,10 @@
         {/if}
       </div>
 
-      <div class="w-px h-3.5 bg-gray-700"></div>
+      <div class="w-px h-3.5 bg-gray-700 {$hoverCoord ? '' : 'hidden sm:block'}"></div>
 
       <!-- Hover Coordinate (with [Pasteboard] indicator when outside Artboard) -->
-      <div class="font-mono flex items-center text-xs whitespace-pre select-none tracking-tight">
+      <div class="font-mono {$hoverCoord ? 'flex' : 'hidden sm:flex'} items-center text-xs whitespace-pre select-none tracking-tight">
         {#if $hoverCoord}
           {@const isOutside = $hoverCoord.x < 0 || $hoverCoord.x >= $grid.width || $hoverCoord.y < 0 || $hoverCoord.y >= $grid.height}
           <span class="{isOutside ? 'text-amber-400/90' : 'text-indigo-400'} font-semibold">X:{String($hoverCoord.x + 1).padEnd(3, ' ')}</span>
@@ -1555,8 +1830,8 @@
     <!-- Line 2: Pattern / Selection Status Bar -->
     <div class="pt-1.5 border-t border-[#2e2e3a] font-mono text-[11px] text-gray-400 flex items-center justify-between">
       {#if $activeTool === 'stamp' && $activeStamp}
-        <div class="flex items-center space-x-2 text-emerald-300">
-          <span>Motif Stamp: <strong class="text-white">{$activeStamp.name}</strong> ({$activeStamp.width}×{$activeStamp.height} st) &bull; Click to place &bull; Press <strong class="text-white">R</strong> to rotate, <strong class="text-white">H/V</strong> to flip</span>
+        <div class="flex flex-wrap items-center gap-2 text-emerald-300">
+          <span>Motif Stamp: <strong class="text-white">{$activeStamp.name}</strong> ({$activeStamp.width}×{$activeStamp.height} st)<span class="hidden md:inline"> &bull; Click to place &bull; Press <strong class="text-white">R</strong> to rotate, <strong class="text-white">H/V</strong> to flip</span></span>
           <button
             type="button"
             class="text-[10px] bg-[#2a2a36] hover:bg-[#323242] text-gray-300 px-2 py-0.5 rounded font-sans font-medium transition-colors cursor-pointer"
@@ -1566,8 +1841,8 @@
           </button>
         </div>
       {:else if $floatingSelection}
-        <div class="flex items-center space-x-2 text-indigo-300">
-          <span>Floating Selection: <strong class="text-white">{$floatingSelection.width}×{$floatingSelection.height} st</strong> &bull; Click or Enter to Commit &bull; Press <strong class="text-white">R</strong> to rotate, <strong class="text-white">H/V</strong> to flip</span>
+        <div class="flex flex-wrap items-center gap-2 text-indigo-300">
+          <span>Floating Selection: <strong class="text-white">{$floatingSelection.width}×{$floatingSelection.height} st</strong><span class="hidden md:inline"> &bull; Click or Enter to Commit &bull; Press <strong class="text-white">R</strong> to rotate, <strong class="text-white">H/V</strong> to flip</span></span>
           <button
             type="button"
             class="text-[10px] bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-0.5 rounded font-sans font-medium transition-colors shadow-sm cursor-pointer"
@@ -1584,12 +1859,12 @@
           </button>
         </div>
       {:else if $activeLayer && $activeLayer.type === 'text' && !$activeLayer.locked}
-        <div class="flex items-center space-x-2 text-purple-300">
+        <div class="flex flex-wrap items-center gap-2 text-purple-300">
           <span>
-            Text Layer: <strong class="text-white">{$activeLayer.name}</strong> &bull;
+            Text Layer: <strong class="text-white">{$activeLayer.name}</strong><span class="hidden md:inline"> &bull;
             Drag handles to position &bull;
             Press <strong class="text-white">Enter</strong> to finalize stitches &bull;
-            Press <strong class="text-white">R</strong> to rotate, <strong class="text-white">H/V</strong> to flip
+            Press <strong class="text-white">R</strong> to rotate, <strong class="text-white">H/V</strong> to flip</span>
           </span>
           <button
             type="button"
@@ -1601,7 +1876,7 @@
           </button>
         </div>
       {:else if $selectionBounds}
-        <div class="flex items-center space-x-2">
+        <div class="flex flex-wrap items-center gap-2">
           <span>
             Selection: <strong class="text-indigo-300 font-medium">{$selectionBounds.width}×{$selectionBounds.height} st</strong>
             <span class="text-gray-500">({formatDimensions($selectionBounds.width, $selectionBounds.height, $grid.fabricCount, $measurementUnit)})</span>

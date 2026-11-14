@@ -164,7 +164,7 @@
     aria-label="My Projects Library"
     on:click|self={() => isProjectLibraryModalOpen.set(false)}
   >
-    <div class="bg-[#181822] border border-gray-700 w-full max-w-4xl rounded-2xl shadow-2xl flex flex-col max-h-[88vh] overflow-hidden text-gray-200">
+    <div class="bg-[#181822] border border-gray-700 w-full max-w-4xl rounded-2xl shadow-2xl flex flex-col max-h-[88dvh] overflow-hidden text-gray-200">
       <!-- Modal Header -->
       <div class="p-4 border-b border-gray-800 flex flex-wrap items-center justify-between gap-3 bg-[#1f1f2c]">
         <div class="flex items-center space-x-3">
